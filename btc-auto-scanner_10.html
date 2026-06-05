@@ -284,7 +284,7 @@
     <div class="chart-wrap"><canvas id="pnlChart" role="img" aria-label="P&L chart">P&L</canvas></div>
     <div class="log-title-row">
       <div class="panel-title" style="margin-bottom:0;border:none;padding:0">Recent Trades (Moderate)</div>
-      <button class="btn btn-outline btn-sm" onclick="clearAll()">Clear All</button>
+      <button class="btn btn-outline btn-sm" onclick="clearAll()">Refresh</button>
     </div>
     <div class="trade-log" id="tradeLog"><div class="empty-log">Auto-scanning starting...<br>All signals logged automatically.</div></div>
   </div>
@@ -347,7 +347,7 @@
 const SCAN_INTERVAL = 20000;
 const STAKE = 5;
 const START_BAL = 100;
-const STORAGE_KEY = 'btc_auto_v4';
+const API_BASE = 'https://carroll-why-identifier-game.trycloudflare.com';
 const STRATS = {conservative:0.30, moderate:0.20, aggressive:0.12};
 const STRAT_COLORS = {conservative:'#50a8ff', moderate:'#ffd060', aggressive:'#ff8c42'};
 const TIME_MULT = {1:65.2,2:69.0,3:63.4,4:62.6,5:63.6,6:50.8,7:50.5,8:48.5,9:48.6,10:48.6,11:40.2,12:38.1,13:32.1,14:26.9};
@@ -359,8 +359,28 @@ let cdInterval = null;
 let scanTimer = null;
 let charts = {};
 
-function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify({trades,scanCount}));}
-function load(){try{const d=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');trades=d.trades||[];scanCount=d.scanCount||0;}catch(e){trades=[];}}
+function save(){}  // trades stored server-side now
+
+function serverToTrade(r){
+  const d=new Date(r.timestamp_utc);
+  return{id:r.id,contractKey:r.contract_key,strategy:r.strategy,
+    time:d.toLocaleTimeString(),date:d.toLocaleDateString(),
+    signal:r.signal,dir:r.direction,entry:Math.round((r.entry_price||0)*100),
+    winProb:r.win_prob,edge:r.edge,btcPrice:r.btc_price,threshold:r.threshold,
+    expiry:r.expiry?new Date(r.expiry).getTime():null,ticker:r.ticker,
+    contracts:r.contracts,stake:r.stake,maxGain:r.max_gain,maxLoss:r.max_loss,
+    ev:r.ev,outcome:r.outcome,pnl:r.pnl,finalBTC:r.final_btc};
+}
+
+async function loadFromServer(){
+  try{
+    const r=await fetch(API_BASE+'/trades?limit=400');
+    const data=await r.json();
+    if(Array.isArray(data)){trades=data.map(serverToTrade);}
+  }catch(e){console.warn('Server trade load failed:',e);}
+}
+
+function load(){}
 
 function showTab(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
@@ -378,7 +398,7 @@ function calcMom(c){const r=c.slice(-5);return Math.round(r.filter((v,i)=>i>0&&v
 function calcSR(hi,lo,p){const res=Math.max(...hi.slice(-10)),sup=Math.min(...lo.slice(-10)),rng=res-sup;if(!rng)return 0;const pos=(p-sup)/rng;return pos>0.8?-0.17:pos<0.2?0.17:0;}
 
 async function fetchBTC(){
-  const r=await fetch('https://carroll-why-identifier-game.trycloudflare.com/scan');
+  const r=await fetch(API_BASE+'/scan');
   const d=await r.json();
   if(d.error) throw new Error(d.error);
   const closes=d.closes, highs=d.highs, lows=d.lows;
@@ -682,7 +702,7 @@ function exportCSV(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='btc_all_strategies.csv';a.click();
 }
 
-function clearAll(){if(!confirm('Clear all trades for ALL strategies?'))return;trades=[];save();renderRight();}
+function clearAll(){loadFromServer().then(renderRight);}
 
 // ── SCAN LOOP ───────────────────────────────────────────────────
 async function scan(){
@@ -701,11 +721,9 @@ async function scan(){
     const kalshiData=kalshi||{yesPrice:0.5,minsLeft:7,threshold:btc.price*1.001,ticker:'est_'+Date.now(),expiry:Date.now()+7*60000};
     const sc=scoreIndicators(btc,kalshiData);
     renderLeft(btc,kalshiData,sc);
-    autoLog(btc,kalshiData,sc);
-    await resolveAll();
+    scanCount++;
+    if(scanCount===1||scanCount%3===0) await loadFromServer();
     renderRight();
-    scanCount++;save();
-    document.getElementById('scanCount').textContent=scanCount;
     document.getElementById('lastScan').textContent=new Date().toLocaleTimeString();
     document.getElementById('statusText').textContent='Live';
   }catch(e){document.getElementById('statusText').textContent='Error — retrying...';console.error(e);}
@@ -720,7 +738,7 @@ function startCountdown(){
 function scheduleScan(){scan();startCountdown();scanTimer=setInterval(()=>{scan();startCountdown();},SCAN_INTERVAL);}
 function manualScan(){clearInterval(scanTimer);clearInterval(cdInterval);scheduleScan();}
 
-load();renderRight();scheduleScan();
+loadFromServer().then(()=>{renderRight();scheduleScan();});
 </script>
 </body>
 </html>
