@@ -347,7 +347,8 @@
 const SCAN_INTERVAL = 20000;
 const STAKE = 5;
 const START_BAL = 100;
-const API_BASE = 'https://carroll-why-identifier-game.trycloudflare.com';
+const GIST_URL = 'https://gist.githubusercontent.com/passivebw/8060a0bd99f0b8b3cbf2125ab7446b84/raw/config.json';
+let API_BASE = 'https://verde-depends-installing-endorsed.trycloudflare.com'; // updated from Gist on load
 const STRATS = {conservative:0.30, moderate:0.20, aggressive:0.12};
 const STRAT_COLORS = {conservative:'#50a8ff', moderate:'#ffd060', aggressive:'#ff8c42'};
 const TIME_MULT = {1:65.2,2:69.0,3:63.4,4:62.6,5:63.6,6:50.8,7:50.5,8:48.5,9:48.6,10:48.6,11:40.2,12:38.1,13:32.1,14:26.9};
@@ -738,7 +739,12 @@ function startCountdown(){
 function scheduleScan(){scan();startCountdown();scanTimer=setInterval(()=>{scan();startCountdown();},SCAN_INTERVAL);}
 function manualScan(){clearInterval(scanTimer);clearInterval(cdInterval);scheduleScan();}
 
-loadFromServer().then(()=>{renderRight();scheduleScan();});
+// Fetch current tunnel URL from Gist, then start
+fetch(GIST_URL+'?t='+Date.now())
+  .then(r=>r.json())
+  .then(cfg=>{if(cfg.api_base)API_BASE=cfg.api_base;})
+  .catch(()=>{})
+  .finally(()=>{loadFromServer().then(()=>{renderRight();scheduleScan();});});
 </script>
 </body>
 </html>
