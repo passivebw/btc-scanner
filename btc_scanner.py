@@ -22,8 +22,8 @@ DB_PATH = '/root/trades.db'
 SCAN_INTERVAL = 20
 STAKE = 5
 STRATS = {'conservative': 0.30, 'moderate': 0.20, 'aggressive': 0.12}
-TIME_MULT = {1:65.2, 2:69.0, 3:63.4, 4:62.6, 5:63.6, 6:50.8, 7:50.5,
-             8:48.5, 9:48.6, 10:48.6, 11:40.2, 12:38.1, 13:32.1, 14:26.9}
+TIME_MULT = {1:68.2, 2:71.2, 3:63.1, 4:64.5, 5:65.0, 6:52.0, 7:50.8,
+             8:49.0, 9:48.6, 10:49.2, 11:40.6, 12:39.2, 13:35.3, 14:29.8}
 
 
 def init_db():
@@ -173,9 +173,9 @@ def score_indicators(closes, highs, lows, kalshi):
     else:
         rsi_score = (rsi9 - 50) / 500
 
-    macd_score = max(-0.15, min(0.15, macd / 200))
+    macd_score = max(-0.15, min(0.15, macd / 469))
     mom_score  = (mom - 5) / 100
-    total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
+    total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score + 0.042
 
     mins_left = 7
     if kalshi and kalshi.get('expiry'):
