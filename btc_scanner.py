@@ -66,14 +66,14 @@ def calc_ema(d, p):
 
 
 def calc_rsi(c, p):
-    g, l = 0, 0
-    for i in range(len(c) - p, len(c)):
-        diff = c[i] - c[i-1]
-        if diff > 0:
-            g += diff
-        else:
-            l -= diff
-    return 100 - (100 / (1 + g / (l or 0.001)))
+    # Wilder's Smoothed RSI — uses all candles, won't snap to 0 during downtrends
+    diffs = [c[i] - c[i-1] for i in range(1, len(c))]
+    ag = sum(d for d in diffs[:p] if d > 0) / p
+    al = sum(-d for d in diffs[:p] if d < 0) / p
+    for d in diffs[p:]:
+        ag = (ag * (p - 1) + (d if d > 0 else 0)) / p
+        al = (al * (p - 1) + (-d if d < 0 else 0)) / p
+    return 100 if al == 0 else 100 - (100 / (1 + ag / al))
 
 
 def calc_macd(c):
@@ -162,20 +162,29 @@ def score_indicators(closes, highs, lows, kalshi):
     else:
         ma_struct = 0.09
 
-    if rsi9 > 70:
-        rsi_score = -0.10
-    elif rsi9 < 30:
-        rsi_score = 0.10
-    elif rsi9 > 60:
-        rsi_score = -0.05
-    elif rsi9 < 40:
-        rsi_score = 0.05
+    # RSI scoring from 454 PS data points (momentum-based, not pure mean-reversion)
+    if rsi9 >= 90:
+        rsi_score = -0.135
+    elif rsi9 >= 80:
+        rsi_score = -0.107
+    elif rsi9 >= 70:
+        rsi_score = -0.086
+    elif rsi9 >= 60:
+        rsi_score = 0.026
+    elif rsi9 >= 50:
+        rsi_score = 0.009
+    elif rsi9 >= 40:
+        rsi_score = -0.008
+    elif rsi9 >= 30:
+        rsi_score = -0.025
+    elif rsi9 >= 20:
+        rsi_score = 0.080
     else:
-        rsi_score = (rsi9 - 50) / 500
+        rsi_score = 0.133
 
     macd_score = max(-0.15, min(0.15, macd / 469))
     mom_score  = (mom - 5) / 100
-    total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score + 0.042
+    total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
 
     mins_left = 7
     if kalshi and kalshi.get('expiry'):

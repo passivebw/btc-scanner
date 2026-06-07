@@ -393,7 +393,14 @@ function showTab(name){
 
 // ── INDICATORS ──────────────────────────────────────────────────
 function calcEMA(d,p){const k=2/(p+1);let e=d.slice(0,p).reduce((a,b)=>a+b,0)/p;for(let i=p;i<d.length;i++)e=d[i]*k+e*(1-k);return e;}
-function calcRSI(c,p){let g=0,l=0;for(let i=c.length-p;i<c.length;i++){const d=c[i]-c[i-1];d>0?g+=d:l-=d;}return 100-(100/(1+g/(l||0.001)));}
+function calcRSI(c,p){
+  // Wilder's Smoothed RSI — uses all candles, won't snap to 0 during downtrends
+  const diffs=[];for(let i=1;i<c.length;i++)diffs.push(c[i]-c[i-1]);
+  let ag=diffs.slice(0,p).reduce((s,d)=>s+(d>0?d:0),0)/p;
+  let al=diffs.slice(0,p).reduce((s,d)=>s+(d<0?-d:0),0)/p;
+  for(let i=p;i<diffs.length;i++){ag=(ag*(p-1)+(diffs[i]>0?diffs[i]:0))/p;al=(al*(p-1)+(diffs[i]<0?-diffs[i]:0))/p;}
+  return al===0?100:100-(100/(1+ag/al));
+}
 function calcMACD(c){return calcEMA(c,12)-calcEMA(c,26);}
 function calcMom(c){const r=c.slice(-5);return Math.round(r.filter((v,i)=>i>0&&v>r[i-1]).length/4*10);}
 function calcSR(hi,lo,p){const res=Math.max(...hi.slice(-10)),sup=Math.min(...lo.slice(-10)),rng=res-sup;if(!rng)return 0;const pos=(p-sup)/rng;return pos>0.8?-0.17:pos<0.2?0.17:0;}
@@ -435,8 +442,8 @@ function scoreIndicators(btc,kalshi){
   // MA Structure
   let maStruct=price<ma5&&price<ema21?-0.18:price>ma5&&price>ema21?0.18:price<ma5?-0.09:0.09;
 
-  // RSI Score
-  let rsiScore=rsi9>70?-0.10:rsi9<30?0.10:rsi9>60?-0.05:rsi9<40?0.05:(rsi9-50)/500;
+  // RSI Score — from 454 PS data points (momentum-based, not pure mean-reversion)
+  let rsiScore=rsi9>=90?-0.135:rsi9>=80?-0.107:rsi9>=70?-0.086:rsi9>=60?0.026:rsi9>=50?0.009:rsi9>=40?-0.008:rsi9>=30?-0.025:rsi9>=20?0.080:0.133;
 
   // MACD Score - refined scaler from 1107 PS data points (raw MACD / 469)
   const macdScore=Math.max(-0.15,Math.min(0.15,macd/469));
@@ -447,10 +454,7 @@ function scoreIndicators(btc,kalshi){
   // Momentum
   const momScore=(btc.momentum-5)/100;
 
-  // Hidden constant offset discovered via regression (+0.042)
-  const hiddenOffset=0.042;
-
-  const total=priceGap+maStruct+rsiScore+macdScore+srScore+momScore+hiddenOffset;
+  const total=priceGap+maStruct+rsiScore+macdScore+srScore+momScore;
 
   const mins=kalshi?.minsLeft||7;
   // Updated time multiplier table from 1107 PS data points
