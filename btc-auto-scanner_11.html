@@ -344,7 +344,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
-const SCAN_INTERVAL = 20000;
+const SCAN_INTERVAL = 60000;
 const STAKE = 5;
 const START_BAL = 100;
 const GIST_URL = 'https://gist.githubusercontent.com/passivebw/8060a0bd99f0b8b3cbf2125ab7446b84/raw/config.json';
@@ -355,7 +355,7 @@ const TIME_MULT = {1:68.2,2:71.2,3:63.1,4:64.5,5:65.0,6:52.0,7:50.8,8:49.0,9:48.
 
 let trades = [];
 let scanCount = 0;
-let countdown = 20;
+let countdown = 60;
 let cdInterval = null;
 let scanTimer = null;
 let charts = {};
@@ -756,8 +756,8 @@ async function scan(){
 }
 
 function startCountdown(){
-  countdown=20;clearInterval(cdInterval);
-  cdInterval=setInterval(()=>{countdown--;document.getElementById('cdText').textContent=countdown+'s';document.getElementById('progressFill').style.width=(countdown/20*100)+'%';if(countdown<=0)clearInterval(cdInterval);},1000);
+  countdown=60;clearInterval(cdInterval);
+  cdInterval=setInterval(()=>{countdown--;document.getElementById('cdText').textContent=countdown+'s';document.getElementById('progressFill').style.width=(countdown/60*100)+'%';if(countdown<=0)clearInterval(cdInterval);},1000);
 }
 
 function scheduleScan(){scan();startCountdown();scanTimer=setInterval(()=>{scan();startCountdown();},SCAN_INTERVAL);}
