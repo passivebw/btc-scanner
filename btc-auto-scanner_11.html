@@ -394,14 +394,19 @@ function showTab(name){
 // ── INDICATORS ──────────────────────────────────────────────────
 function calcEMA(d,p){const k=2/(p+1);let e=d.slice(0,p).reduce((a,b)=>a+b,0)/p;for(let i=p;i<d.length;i++)e=d[i]*k+e*(1-k);return e;}
 function calcRSI(c,p){
-  // Wilder's Smoothed RSI — uses all candles, won't snap to 0 during downtrends
-  const diffs=[];for(let i=1;i<c.length;i++)diffs.push(c[i]-c[i-1]);
-  let ag=diffs.slice(0,p).reduce((s,d)=>s+(d>0?d:0),0)/p;
-  let al=diffs.slice(0,p).reduce((s,d)=>s+(d<0?-d:0),0)/p;
-  for(let i=p;i<diffs.length;i++){ag=(ag*(p-1)+(diffs[i]>0?diffs[i]:0))/p;al=(al*(p-1)+(diffs[i]<0?-diffs[i]:0))/p;}
+  const diffs=[];for(let i=c.length-p;i<c.length;i++)diffs.push(c[i]-c[i-1]);
+  const ag=diffs.reduce((s,d)=>s+(d>0?d:0),0)/p;
+  const al=diffs.reduce((s,d)=>s+(d<0?-d:0),0)/p;
   return al===0?100:100-(100/(1+ag/al));
 }
-function calcMACD(c){return calcEMA(c,12)-calcEMA(c,26);}
+function calcMACD(c){
+  // MACD(5,13,6) — PS uses faster params tuned for 15-min markets
+  const hist=[];
+  for(let i=13;i<=c.length;i++){const sub=c.slice(0,i);hist.push(calcEMA(sub,5)-calcEMA(sub,13));}
+  const val=calcEMA(c,5)-calcEMA(c,13);
+  const sig=hist.length>=6?calcEMA(hist,6):val;
+  return{value:val,signal:sig,histogram:val-sig};
+}
 function calcMom(c){const r=c.slice(-5);return Math.round(r.filter((v,i)=>i>0&&v>r[i-1]).length/4*10);}
 function calcSR(hi,lo,p){const res=Math.max(...hi.slice(-10)),sup=Math.min(...lo.slice(-10)),rng=res-sup;if(!rng)return 0;const pos=(p-sup)/rng;return pos>0.8?-0.17:pos<0.2?0.17:0;}
 
@@ -411,7 +416,8 @@ async function fetchBTC(){
   if(d.error) throw new Error(d.error);
   const closes=d.closes, highs=d.highs, lows=d.lows;
   const price=closes[closes.length-1];
-  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:calcMACD(closes),momentum:calcMom(closes),hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,sr:calcSR(highs,lows,price),closes,highs,lows,_kalshi:d.kalshi};
+  const _macd=calcMACD(closes);
+  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,momentum:calcMom(closes),hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,sr:calcSR(highs,lows,price),closes,highs,lows,_kalshi:d.kalshi};
 }
 
 async function fetchKalshi(){
@@ -433,7 +439,7 @@ async function fetchKalshi(){
 }
 
 function scoreIndicators(btc,kalshi){
-  const{price,ma5,ema21,rsi9,macd,sr}=btc;
+  const{price,ma5,ema21,rsi9,macd,macdSignal,macdHistogram,sr}=btc;
   const thresh=kalshi?.threshold||price;
 
   // Price Gap - capped at ±0.25
@@ -445,8 +451,12 @@ function scoreIndicators(btc,kalshi){
   // RSI Score — from 454 PS data points (momentum-based, not pure mean-reversion)
   let rsiScore=rsi9>=90?-0.135:rsi9>=80?-0.107:rsi9>=70?-0.086:rsi9>=60?0.026:rsi9>=50?0.009:rsi9>=40?-0.008:rsi9>=30?-0.025:rsi9>=20?0.080:0.133;
 
-  // MACD Score - refined scaler from 1107 PS data points (raw MACD / 469)
-  const macdScore=Math.max(-0.15,Math.min(0.15,macd/469));
+  // MACD score: direction vs signal + histogram magnitude / (price * 0.0005)
+  const _hist=macdHistogram,_norm=price*5e-4;
+  let _n=macd>macdSignal?0.5:-0.5;
+  const _mag=Math.min(Math.abs(_hist)/_norm,1);
+  _n+=_hist>0?_mag*0.5:-_mag*0.5;
+  const macdScore=_n*0.13;
 
   // Support/Resistance
   const srScore=sr;

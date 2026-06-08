@@ -66,18 +66,21 @@ def calc_ema(d, p):
 
 
 def calc_rsi(c, p):
-    # Wilder's Smoothed RSI — uses all candles, won't snap to 0 during downtrends
-    diffs = [c[i] - c[i-1] for i in range(1, len(c))]
-    ag = sum(d for d in diffs[:p] if d > 0) / p
-    al = sum(-d for d in diffs[:p] if d < 0) / p
-    for d in diffs[p:]:
-        ag = (ag * (p - 1) + (d if d > 0 else 0)) / p
-        al = (al * (p - 1) + (-d if d < 0 else 0)) / p
+    diffs = [c[i] - c[i-1] for i in range(len(c)-p, len(c))]
+    ag = sum(d for d in diffs if d > 0) / p
+    al = sum(-d for d in diffs if d < 0) / p
     return 100 if al == 0 else 100 - (100 / (1 + ag / al))
 
 
 def calc_macd(c):
-    return calc_ema(c, 12) - calc_ema(c, 26)
+    # MACD(5, 13, 6) — PS uses faster params tuned for 15-min markets
+    history = []
+    for i in range(13, len(c) + 1):
+        sub = c[:i]
+        history.append(calc_ema(sub, 5) - calc_ema(sub, 13))
+    val = calc_ema(c, 5) - calc_ema(c, 13)
+    sig = calc_ema(history, 6) if len(history) >= 6 else val
+    return val, sig
 
 
 def calc_mom(c):
@@ -100,15 +103,35 @@ def calc_sr(hi, lo, p):
     return 0
 
 
-def fetch_data():
+def fetch_candles_cg():
     r = requests.get(
-        'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=60',
+        'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
+        '?vs_currency=usd&days=1',
         timeout=10
     )
-    k = r.json()
-    closes = [float(x[4]) for x in k]
-    highs  = [float(x[2]) for x in k]
-    lows   = [float(x[3]) for x in k]
+    if r.status_code != 200:
+        return None
+    return [p[1] for p in r.json()['prices']]
+
+
+def fetch_candles_binance():
+    r = requests.get(
+        'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=300',
+        timeout=10
+    )
+    return [float(x[4]) for x in r.json()]
+
+
+def fetch_data():
+    try:
+        closes = fetch_candles_cg()
+    except Exception:
+        closes = None
+    if not closes:
+        log.warning('CoinGecko unavailable, falling back to Binance.US')
+        closes = fetch_candles_binance()
+    highs = closes
+    lows  = closes
 
     kalshi = None
     try:
@@ -145,9 +168,9 @@ def score_indicators(closes, highs, lows, kalshi):
     price = closes[-1]
     ma5   = sum(closes[-5:]) / 5
     ema21 = calc_ema(closes, 21)
-    rsi9  = calc_rsi(closes, 9)
-    macd  = calc_macd(closes)
-    mom   = calc_mom(closes)
+    rsi9            = calc_rsi(closes, 9)
+    macd_val, macd_sig = calc_macd(closes)
+    mom             = calc_mom(closes)
     sr    = calc_sr(highs, lows, price)
 
     thresh = (kalshi['threshold'] if kalshi and kalshi['threshold'] else price)
@@ -182,7 +205,14 @@ def score_indicators(closes, highs, lows, kalshi):
     else:
         rsi_score = 0.133
 
-    macd_score = max(-0.15, min(0.15, macd / 469))
+    # MACD score: direction vs signal + histogram magnitude / (price * 0.0005)
+    _hist = macd_val - macd_sig
+    _n    = 0.5 if macd_val > macd_sig else -0.5
+    _norm = price * 5e-4
+    _mag  = min(abs(_hist) / _norm, 1.0) if _norm > 0 else 0
+    _n   += _mag * 0.5 if _hist > 0 else -_mag * 0.5
+    macd_score = _n * 0.13
+
     mom_score  = (mom - 5) / 100
     total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
 
@@ -198,7 +228,7 @@ def score_indicators(closes, highs, lows, kalshi):
     model_up_prob = max(0.01, min(0.99, 0.50 + total * mult / 100))
 
     return {
-        'price': price, 'ma5': ma5, 'ema21': ema21, 'rsi9': rsi9, 'macd': macd,
+        'price': price, 'ma5': ma5, 'ema21': ema21, 'rsi9': rsi9, 'macd': macd_val,
         'momentum': mom, 'sr': sr, 'price_gap': price_gap, 'ma_struct': ma_struct,
         'rsi_score': rsi_score, 'macd_score': macd_score, 'mom_score': mom_score,
         'total': total, 'model_up_prob': model_up_prob, 'mins_left': mins_left,
