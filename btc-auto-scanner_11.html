@@ -400,10 +400,11 @@ function calcRSI(c,p){
   return al===0?100:100-(100/(1+ag/al));
 }
 function calcMACD(c){
-  // MACD(5,13,6) — PS uses faster params tuned for 15-min markets
+  // MACD(5,13,6) — use last 25 candles to match PS (days=0.083 window)
+  const w=c.slice(-25);
   const hist=[];
-  for(let i=13;i<=c.length;i++){const sub=c.slice(0,i);hist.push(calcEMA(sub,5)-calcEMA(sub,13));}
-  const val=calcEMA(c,5)-calcEMA(c,13);
+  for(let i=13;i<=w.length;i++){const sub=w.slice(0,i);hist.push(calcEMA(sub,5)-calcEMA(sub,13));}
+  const val=calcEMA(w,5)-calcEMA(w,13);
   const sig=hist.length>=6?calcEMA(hist,6):val;
   return{value:val,signal:sig,histogram:val-sig};
 }

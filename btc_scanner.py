@@ -73,12 +73,14 @@ def calc_rsi(c, p):
 
 
 def calc_macd(c):
-    # MACD(5, 13, 6) — PS uses faster params tuned for 15-min markets
+    # MACD(5,13,6) — use last 25 candles to match PS (days=0.083 window)
+    # Short window keeps signal reactive; longer history corrupts signal with old data
+    w = c[-25:]
     history = []
-    for i in range(13, len(c) + 1):
-        sub = c[:i]
+    for i in range(13, len(w) + 1):
+        sub = w[:i]
         history.append(calc_ema(sub, 5) - calc_ema(sub, 13))
-    val = calc_ema(c, 5) - calc_ema(c, 13)
+    val = calc_ema(w, 5) - calc_ema(w, 13)
     sig = calc_ema(history, 6) if len(history) >= 6 else val
     return val, sig
 
