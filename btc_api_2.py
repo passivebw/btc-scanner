@@ -20,18 +20,19 @@ def fetch_ohlc():
         return _candle_cache['data']
 
     try:
-        # Primary: Binance.US 1-min OHLC 100 candles (matches PS: bhe("1m", 100))
+        # Primary: Kraken 1-min OHLC — Binance.com blocked from DO server
         r = requests.get(
-            'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=100',
+            'https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1',
             timeout=10
         )
-        if r.status_code == 200:
-            k = r.json()
+        d = r.json()
+        if not d['error']:
+            ohlc = [v for k, v in d['result'].items() if k != 'last'][0][-100:]
             data = {
-                'closes': [float(x[4]) for x in k],
-                'opens':  [float(x[1]) for x in k],
-                'highs':  [float(x[2]) for x in k],
-                'lows':   [float(x[3]) for x in k],
+                'closes': [float(x[4]) for x in ohlc],
+                'opens':  [float(x[1]) for x in ohlc],
+                'highs':  [float(x[2]) for x in ohlc],
+                'lows':   [float(x[3]) for x in ohlc],
             }
             _candle_cache['data'] = data
             _candle_cache['ts']   = now

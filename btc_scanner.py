@@ -122,26 +122,29 @@ def calc_sr(highs, lows, price, thresh):
     return max(-1.0, min(1.0, s)) * 0.17
 
 
-def fetch_ohlc_binance():
-    # Primary: Binance.US 1-min OHLC, 100 candles (matches PS: bhe("1m", 100))
+def fetch_ohlc_kraken():
+    # Primary: Kraken 1-min OHLC — reliable from DO server, Binance.com blocked
     r = requests.get(
-        'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=100',
+        'https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1',
         timeout=10
     )
-    k = r.json()
+    d = r.json()
+    if d['error']:
+        raise Exception(f'Kraken: {d["error"]}')
+    ohlc = [v for k, v in d['result'].items() if k != 'last'][0][-100:]
     return (
-        [float(x[4]) for x in k],  # closes
-        [float(x[1]) for x in k],  # opens
-        [float(x[2]) for x in k],  # highs
-        [float(x[3]) for x in k],  # lows
+        [float(x[4]) for x in ohlc],  # closes
+        [float(x[1]) for x in ohlc],  # opens
+        [float(x[2]) for x in ohlc],  # highs
+        [float(x[3]) for x in ohlc],  # lows
     )
 
 
 def fetch_data():
     try:
-        closes, opens, highs, lows = fetch_ohlc_binance()
+        closes, opens, highs, lows = fetch_ohlc_kraken()
     except Exception as e:
-        log.warning('Binance.US unavailable (%s), falling back to CoinGecko', e)
+        log.warning('Kraken unavailable (%s), falling back to CoinGecko', e)
         try:
             r = requests.get(
                 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
