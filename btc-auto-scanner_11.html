@@ -400,25 +400,43 @@ function calcRSI(c,p){
   return al===0?100:100-(100/(1+ag/al));
 }
 function calcMACD(c){
-  // MACD(5,13,6) — use last 25 candles to match PS (days=0.083 window)
-  const w=c.slice(-25);
+  // MACD(5,13,6) matching PS: bhe("1m",100) full candle array
   const hist=[];
-  for(let i=13;i<=w.length;i++){const sub=w.slice(0,i);hist.push(calcEMA(sub,5)-calcEMA(sub,13));}
-  const val=calcEMA(w,5)-calcEMA(w,13);
+  for(let i=13;i<=c.length;i++){const sub=c.slice(0,i);hist.push(calcEMA(sub,5)-calcEMA(sub,13));}
+  const val=calcEMA(c,5)-calcEMA(c,13);
   const sig=hist.length>=6?calcEMA(hist,6):val;
   return{value:val,signal:sig,histogram:val-sig};
 }
-function calcMom(c){const r=c.slice(-5);return Math.round(r.filter((v,i)=>i>0&&v>r[i-1]).length/4*10);}
-function calcSR(hi,lo,p){const res=Math.max(...hi.slice(-10)),sup=Math.min(...lo.slice(-10)),rng=res-sup;if(!rng)return 0;const pos=(p-sup)/rng;return pos>0.8?-0.17:pos<0.2?0.17:0;}
+function calcMom(closes,opens){
+  // Mhe: weighted average of last 10 candle directions, most recent = highest weight
+  const pairs=closes.slice(-10).map((c,i)=>c>=opens[opens.length-10+i]?1:-1).reverse();
+  const t=pairs.reduce((s,d,i)=>s+d*(i+1),0);
+  const w=pairs.reduce((s,_,i)=>s+(i+1),0);
+  return w?t/w*0.08:0;
+}
+function calcSR(highs,lows,price,thresh){
+  // khe + Ohe: $50 grid levels with rejection counts
+  if(highs.length<20)return 0;
+  const GRID=50,PROX=0.003,counts={};
+  highs.forEach(h=>{const l=Math.round(h/GRID)*GRID;counts[l]=(counts[l]||0)+1;});
+  lows.forEach(h=>{const l=Math.round(h/GRID)*GRID;counts[l]=(counts[l]||0)+1;});
+  const levels=Object.entries(counts).filter(([,c])=>c>=2).map(([l,c])=>({l:+l,c})).sort((a,b)=>a.l-b.l);
+  const support=levels.filter(x=>x.l<thresh).slice(-5);
+  const resist =levels.filter(x=>x.l>thresh).slice(0,5);
+  let s=0;
+  resist.forEach(({l:a,c:cnt})=>{const w=Math.min(cnt*0.2,0.8);if(Math.abs(thresh-a)/a<PROX)s-=0.6*w;else if(thresh>a&&a>price)s-=0.4*w;else if(a>thresh)s-=0.1*w;});
+  support.forEach(({l:a,c:cnt})=>{const w=Math.min(cnt*0.2,0.8);if(price>a&&a>thresh)s+=0.5*w;else if(Math.abs(price-a)/a<PROX)s+=0.3*w;});
+  return Math.max(-1,Math.min(1,s))*0.17;
+}
 
 async function fetchBTC(){
   const r=await fetch(API_BASE+'/scan');
   const d=await r.json();
   if(d.error) throw new Error(d.error);
-  const closes=d.closes, highs=d.highs, lows=d.lows;
+  const closes=d.closes, opens=d.opens||d.closes, highs=d.highs, lows=d.lows;
   const price=closes[closes.length-1];
   const _macd=calcMACD(closes);
-  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,momentum:calcMom(closes),hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,sr:calcSR(highs,lows,price),closes,highs,lows,_kalshi:d.kalshi};
+  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,closes,opens,highs,lows,_kalshi:d.kalshi};
 }
 
 async function fetchKalshi(){
@@ -440,35 +458,45 @@ async function fetchKalshi(){
 }
 
 function scoreIndicators(btc,kalshi){
-  const{price,ma5,ema21,rsi9,macd,macdSignal,macdHistogram,sr}=btc;
+  const{price,ma5,ema21,rsi9,macd,macdSignal,macdHistogram,closes,opens,highs,lows}=btc;
   const thresh=kalshi?.threshold||price;
+  const mins=kalshi?.minsLeft||7;
 
-  // Price Gap - capped at ±0.25
-  const priceGap=thresh>0?Math.max(-0.25,Math.min(0.25,(price-thresh)/thresh*10)):0;
+  // Price Gap (Che): time-dependent normalization
+  const pgNorm=0.00015*mins*price;
+  const priceGap=pgNorm>0?Math.max(-1,Math.min(1,(price-thresh)/pgNorm))*0.25:0;
 
-  // MA Structure
-  let maStruct=price<ma5&&price<ema21?-0.18:price>ma5&&price>ema21?0.18:price<ma5?-0.09:0.09;
+  // MA Structure (Nhe): 4-component including threshold relationship
+  let _i=0;
+  _i+=price>ma5?0.25:-0.25;
+  _i+=price>ema21?0.25:-0.25;
+  _i+=ma5>ema21?0.25:-0.25;
+  if(price>thresh){if(ma5<thresh&&ema21<thresh)_i+=0.25;else if(ma5>thresh||ema21>thresh)_i-=0.15;}
+  else{if(ma5>thresh&&ema21>thresh)_i-=0.25;else if(ma5<price&&ema21<price)_i+=0.15;}
+  const maStruct=_i*0.20;
 
-  // RSI Score — from 454 PS data points (momentum-based, not pure mean-reversion)
-  let rsiScore=rsi9>=90?-0.135:rsi9>=80?-0.107:rsi9>=70?-0.086:rsi9>=60?0.026:rsi9>=50?0.009:rsi9>=40?-0.008:rsi9>=30?-0.025:rsi9>=20?0.080:0.133;
+  // RSI Score (jhe): continuous curve
+  let _r=0;
+  if(rsi9>70){_r=-0.5-(rsi9-70)/30*0.5;if(mins<=5)_r*=0.5;}
+  else if(rsi9<30){_r=0.5+(30-rsi9)/30*0.5;if(mins<=3)_r*=0.3;else if(mins<=7)_r*=0.6;}
+  else if(rsi9>50)_r=(rsi9-50)/50*0.5;
+  else _r=-((50-rsi9)/50*0.5);
+  const rsiScore=_r*0.17;
 
-  // MACD score: direction vs signal + histogram magnitude / (price * 0.0005)
+  // MACD score (Phe)
   const _hist=macdHistogram,_norm=price*5e-4;
   let _n=macd>macdSignal?0.5:-0.5;
   const _mag=Math.min(Math.abs(_hist)/_norm,1);
   _n+=_hist>0?_mag*0.5:-_mag*0.5;
   const macdScore=_n*0.13;
 
-  // Support/Resistance
-  const srScore=sr;
+  // S/R (khe + Ohe)
+  const srScore=calcSR(highs,lows,price,thresh);
 
-  // Momentum
-  const momScore=(btc.momentum-5)/100;
+  // Momentum (Mhe)
+  const momScore=calcMom(closes,opens);
 
   const total=priceGap+maStruct+rsiScore+macdScore+srScore+momScore;
-
-  const mins=kalshi?.minsLeft||7;
-  // Updated time multiplier table from 1107 PS data points
   const mult=TIME_MULT[Math.min(14,Math.max(1,mins))]||49;
   const timeMult=mins<=5?1.5:mins<=8?1.0:0.75;
   return{priceGap,maStruct,rsiScore,macdScore,srScore,momScore,total,timeAdj:total*timeMult,modelUpProb:Math.max(0.01,Math.min(0.99,0.50+total*mult/100))};

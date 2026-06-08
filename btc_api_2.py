@@ -2,12 +2,54 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
 import sqlite3
+import time
 from datetime import datetime, timezone
 
 app = Flask(__name__)
 CORS(app)
 
 DB_PATH = '/root/trades.db'
+
+_candle_cache = {'data': None, 'ts': 0}
+CACHE_TTL = 60
+
+
+def fetch_ohlc():
+    now = time.time()
+    if _candle_cache['data'] is not None and now - _candle_cache['ts'] < CACHE_TTL:
+        return _candle_cache['data']
+
+    try:
+        # Primary: Binance.US 1-min OHLC 100 candles (matches PS: bhe("1m", 100))
+        r = requests.get(
+            'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=100',
+            timeout=10
+        )
+        if r.status_code == 200:
+            k = r.json()
+            data = {
+                'closes': [float(x[4]) for x in k],
+                'opens':  [float(x[1]) for x in k],
+                'highs':  [float(x[2]) for x in k],
+                'lows':   [float(x[3]) for x in k],
+            }
+            _candle_cache['data'] = data
+            _candle_cache['ts']   = now
+            return data
+    except Exception:
+        pass
+
+    # Fallback: CoinGecko price-only
+    r = requests.get(
+        'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
+        '?vs_currency=usd&days=1',
+        timeout=10
+    )
+    closes = [p[1] for p in r.json()['prices']]
+    data = {'closes': closes, 'opens': closes, 'highs': closes, 'lows': closes}
+    _candle_cache['data'] = data
+    _candle_cache['ts']   = now
+    return data
 
 
 def get_db():
@@ -19,13 +61,11 @@ def get_db():
 @app.route('/scan')
 def scan():
     try:
-        r = requests.get(
-            'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=60'
-        )
-        k = r.json()
-        closes = [float(x[4]) for x in k]
-        highs  = [float(x[2]) for x in k]
-        lows   = [float(x[3]) for x in k]
+        ohlc   = fetch_ohlc()
+        closes = ohlc['closes']
+        opens  = ohlc['opens']
+        highs  = ohlc['highs']
+        lows   = ohlc['lows']
         kalshi = None
         try:
             kr = requests.get(
@@ -59,7 +99,7 @@ def scan():
                 }
         except Exception as ke:
             kalshi = {'error': str(ke)}
-        return jsonify({'closes': closes, 'highs': highs, 'lows': lows, 'kalshi': kalshi})
+        return jsonify({'closes': closes, 'opens': opens, 'highs': highs, 'lows': lows, 'kalshi': kalshi})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -73,67 +73,86 @@ def calc_rsi(c, p):
 
 
 def calc_macd(c):
-    # MACD(5,13,6) — use last 25 candles to match PS (days=0.083 window)
-    # Short window keeps signal reactive; longer history corrupts signal with old data
-    w = c[-25:]
+    # MACD(5,13,6) matching PS: bhe("1m",100) full candle array
     history = []
-    for i in range(13, len(w) + 1):
-        sub = w[:i]
+    for i in range(13, len(c) + 1):
+        sub = c[:i]
         history.append(calc_ema(sub, 5) - calc_ema(sub, 13))
-    val = calc_ema(w, 5) - calc_ema(w, 13)
+    val = calc_ema(c, 5) - calc_ema(c, 13)
     sig = calc_ema(history, 6) if len(history) >= 6 else val
     return val, sig
 
 
-def calc_mom(c):
-    r = c[-5:]
-    ups = sum(1 for i in range(1, len(r)) if r[i] > r[i-1])
-    return round(ups / 4 * 10)
+def calc_mom(closes, opens):
+    # Mhe: weighted average of last 10 candle directions (close>=open), recent = highest weight
+    pairs = list(zip(closes[-10:], opens[-10:]))
+    dirs  = [1 if c >= o else -1 for c, o in pairs]
+    dirs.reverse()
+    total  = sum(d * (i + 1) for i, d in enumerate(dirs))
+    weight = sum(range(1, len(dirs) + 1))
+    return (total / weight) * 0.08 if weight else 0
 
 
-def calc_sr(hi, lo, p):
-    res = max(hi[-10:])
-    sup = min(lo[-10:])
-    rng = res - sup
-    if not rng:
+def calc_sr(highs, lows, price, thresh):
+    # khe + Ohe: $50 grid levels with rejection counts
+    if len(highs) < 20:
         return 0
-    pos = (p - sup) / rng
-    if pos > 0.8:
-        return -0.17
-    elif pos < 0.2:
-        return 0.17
-    return 0
+    GRID  = 50
+    PROX  = 0.003
+    counts = {}
+    for h in highs:
+        lvl = round(h / GRID) * GRID
+        counts[lvl] = counts.get(lvl, 0) + 1
+    for l in lows:
+        lvl = round(l / GRID) * GRID
+        counts[lvl] = counts.get(lvl, 0) + 1
+    levels     = sorted((lvl, cnt) for lvl, cnt in counts.items() if cnt >= 2)
+    support    = [lvl for lvl, _ in levels if lvl < thresh][-5:]
+    resistance = [lvl for lvl, _ in levels if lvl > thresh][:5]
+    s = 0
+    for a in resistance:
+        w = min(counts[a] * 0.2, 0.8)
+        if abs(thresh - a) / a < PROX:  s -= 0.6 * w
+        elif thresh > a > price:         s -= 0.4 * w
+        elif a > thresh:                 s -= 0.1 * w
+    for a in support:
+        w = min(counts[a] * 0.2, 0.8)
+        if price > a > thresh:              s += 0.5 * w
+        elif abs(price - a) / a < PROX:    s += 0.3 * w
+    return max(-1.0, min(1.0, s)) * 0.17
 
 
-def fetch_candles_cg():
+def fetch_ohlc_binance():
+    # Primary: Binance.US 1-min OHLC, 100 candles (matches PS: bhe("1m", 100))
     r = requests.get(
-        'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
-        '?vs_currency=usd&days=1',
+        'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=100',
         timeout=10
     )
-    if r.status_code != 200:
-        return None
-    return [p[1] for p in r.json()['prices']]
-
-
-def fetch_candles_binance():
-    r = requests.get(
-        'https://api.binance.us/api/v3/klines?symbol=BTCUSD&interval=1m&limit=300',
-        timeout=10
+    k = r.json()
+    return (
+        [float(x[4]) for x in k],  # closes
+        [float(x[1]) for x in k],  # opens
+        [float(x[2]) for x in k],  # highs
+        [float(x[3]) for x in k],  # lows
     )
-    return [float(x[4]) for x in r.json()]
 
 
 def fetch_data():
     try:
-        closes = fetch_candles_cg()
-    except Exception:
-        closes = None
-    if not closes:
-        log.warning('CoinGecko unavailable, falling back to Binance.US')
-        closes = fetch_candles_binance()
-    highs = closes
-    lows  = closes
+        closes, opens, highs, lows = fetch_ohlc_binance()
+    except Exception as e:
+        log.warning('Binance.US unavailable (%s), falling back to CoinGecko', e)
+        try:
+            r = requests.get(
+                'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
+                '?vs_currency=usd&days=1', timeout=10
+            )
+            closes = [p[1] for p in r.json()['prices']]
+        except Exception:
+            raise
+        opens = closes
+        highs = closes
+        lows  = closes
 
     kalshi = None
     try:
@@ -163,61 +182,19 @@ def fetch_data():
     except Exception as e:
         log.warning('Kalshi fetch failed: %s', e)
 
-    return closes, highs, lows, kalshi
+    return closes, opens, highs, lows, kalshi
 
 
-def score_indicators(closes, highs, lows, kalshi):
+def score_indicators(closes, opens, highs, lows, kalshi):
     price = closes[-1]
     ma5   = sum(closes[-5:]) / 5
     ema21 = calc_ema(closes, 21)
-    rsi9            = calc_rsi(closes, 9)
+    rsi9  = calc_rsi(closes, 9)
     macd_val, macd_sig = calc_macd(closes)
-    mom             = calc_mom(closes)
-    sr    = calc_sr(highs, lows, price)
 
     thresh = (kalshi['threshold'] if kalshi and kalshi['threshold'] else price)
-    price_gap = max(-0.25, min(0.25, (price - thresh) / thresh * 10)) if thresh > 0 else 0
 
-    if price < ma5 and price < ema21:
-        ma_struct = -0.18
-    elif price > ma5 and price > ema21:
-        ma_struct = 0.18
-    elif price < ma5:
-        ma_struct = -0.09
-    else:
-        ma_struct = 0.09
-
-    # RSI scoring from 454 PS data points (momentum-based, not pure mean-reversion)
-    if rsi9 >= 90:
-        rsi_score = -0.135
-    elif rsi9 >= 80:
-        rsi_score = -0.107
-    elif rsi9 >= 70:
-        rsi_score = -0.086
-    elif rsi9 >= 60:
-        rsi_score = 0.026
-    elif rsi9 >= 50:
-        rsi_score = 0.009
-    elif rsi9 >= 40:
-        rsi_score = -0.008
-    elif rsi9 >= 30:
-        rsi_score = -0.025
-    elif rsi9 >= 20:
-        rsi_score = 0.080
-    else:
-        rsi_score = 0.133
-
-    # MACD score: direction vs signal + histogram magnitude / (price * 0.0005)
-    _hist = macd_val - macd_sig
-    _n    = 0.5 if macd_val > macd_sig else -0.5
-    _norm = price * 5e-4
-    _mag  = min(abs(_hist) / _norm, 1.0) if _norm > 0 else 0
-    _n   += _mag * 0.5 if _hist > 0 else -_mag * 0.5
-    macd_score = _n * 0.13
-
-    mom_score  = (mom - 5) / 100
-    total      = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
-
+    # mins_left needed for price_gap and rsi_score — compute first
     mins_left = 7
     if kalshi and kalshi.get('expiry'):
         try:
@@ -226,12 +203,57 @@ def score_indicators(closes, highs, lows, kalshi):
         except Exception:
             pass
 
+    # Price Gap (Che): time-dependent normalization
+    pg_norm   = 0.00015 * mins_left * price
+    price_gap = max(-1, min(1, (price - thresh) / pg_norm)) * 0.25 if pg_norm > 0 else 0
+
+    # MA Structure (Nhe): 4-component including threshold relationship
+    _i = 0
+    _i += 0.25 if price > ma5   else -0.25
+    _i += 0.25 if price > ema21 else -0.25
+    _i += 0.25 if ma5   > ema21 else -0.25
+    if price > thresh:
+        if ma5 < thresh and ema21 < thresh: _i += 0.25
+        elif ma5 > thresh or ema21 > thresh: _i -= 0.15
+    else:
+        if ma5 > thresh and ema21 > thresh: _i -= 0.25
+        elif ma5 < price and ema21 < price: _i += 0.15
+    ma_struct = _i * 0.20
+
+    # RSI Score (jhe): continuous curve
+    if rsi9 > 70:
+        _r = -0.5 - (rsi9 - 70) / 30 * 0.5
+        if mins_left <= 5: _r *= 0.5
+    elif rsi9 < 30:
+        _r = 0.5 + (30 - rsi9) / 30 * 0.5
+        if mins_left <= 3:   _r *= 0.3
+        elif mins_left <= 7: _r *= 0.6
+    elif rsi9 > 50:
+        _r = (rsi9 - 50) / 50 * 0.5
+    else:
+        _r = -((50 - rsi9) / 50 * 0.5)
+    rsi_score = _r * 0.17
+
+    # MACD score (Phe)
+    _hist = macd_val - macd_sig
+    _n    = 0.5 if macd_val > macd_sig else -0.5
+    _norm = price * 5e-4
+    _mag  = min(abs(_hist) / _norm, 1.0) if _norm > 0 else 0
+    _n   += _mag * 0.5 if _hist > 0 else -_mag * 0.5
+    macd_score = _n * 0.13
+
+    # S/R (khe + Ohe) and Momentum (Mhe)
+    sr        = calc_sr(highs, lows, price, thresh)
+    mom_score = calc_mom(closes, opens)
+
+    total = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
+
     mult = TIME_MULT.get(min(14, max(1, mins_left)), 48)
     model_up_prob = max(0.01, min(0.99, 0.50 + total * mult / 100))
 
     return {
         'price': price, 'ma5': ma5, 'ema21': ema21, 'rsi9': rsi9, 'macd': macd_val,
-        'momentum': mom, 'sr': sr, 'price_gap': price_gap, 'ma_struct': ma_struct,
+        'sr': sr, 'price_gap': price_gap, 'ma_struct': ma_struct,
         'rsi_score': rsi_score, 'macd_score': macd_score, 'mom_score': mom_score,
         'total': total, 'model_up_prob': model_up_prob, 'mins_left': mins_left,
     }
@@ -347,8 +369,8 @@ def main():
 
     while True:
         try:
-            closes, highs, lows, kalshi = fetch_data()
-            sc = score_indicators(closes, highs, lows, kalshi)
+            closes, opens, highs, lows, kalshi = fetch_data()
+            sc = score_indicators(closes, opens, highs, lows, kalshi)
             log.info('Scan: BTC=$%.2f modelUP=%.3f mins=%d',
                      sc['price'], sc['model_up_prob'], sc['mins_left'])
             auto_log(sc, kalshi)
