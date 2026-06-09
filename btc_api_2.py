@@ -157,20 +157,114 @@ def stats():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/ps-data')
+def ps_data():
+    try:
+        limit = min(int(request.args.get('limit', 500)), 2000)
+        source = request.args.get('source')  # optional filter: 'simulator' or 'browser'
+        conn = get_db()
+        if source:
+            rows = conn.execute(
+                'SELECT * FROM ps_data WHERE source=? ORDER BY id DESC LIMIT ?',
+                (source, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                'SELECT * FROM ps_data ORDER BY id DESC LIMIT ?', (limit,)
+            ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ps-log', methods=['POST'])
+def ps_log():
+    """Accept PS readings POSTed from the user's browser (authentic Binance.com data)."""
+    try:
+        d = request.get_json(force=True)
+        if not d:
+            return jsonify({'error': 'no JSON body'}), 400
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('''CREATE TABLE IF NOT EXISTS ps_data (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_utc TEXT NOT NULL,
+            source        TEXT NOT NULL DEFAULT 'simulator',
+            btc_price     REAL,
+            threshold     REAL,
+            ticker        TEXT,
+            mins_left     INTEGER,
+            up_pct        REAL,
+            kalshi_yes    REAL,
+            edge          REAL,
+            signal        TEXT,
+            price_gap     REAL,
+            ma_struct     REAL,
+            rsi_score     REAL,
+            macd_score    REAL,
+            sr_score      REAL,
+            mom_score     REAL,
+            total_raw     REAL,
+            rsi9          REAL,
+            macd_val      REAL,
+            ma5           REAL,
+            ema21         REAL
+        )''')
+        conn.execute('''INSERT INTO ps_data
+            (timestamp_utc,source,btc_price,threshold,ticker,mins_left,up_pct,
+             kalshi_yes,edge,signal,price_gap,ma_struct,rsi_score,macd_score,
+             sr_score,mom_score,total_raw,rsi9,macd_val,ma5,ema21)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+            d.get('timestamp_utc', datetime.now(timezone.utc).isoformat()),
+            'browser',
+            d.get('btc_price') or d.get('price'),
+            d.get('threshold'),
+            d.get('ticker'),
+            d.get('mins_left'),
+            d.get('up_pct') or d.get('upPct'),
+            d.get('kalshi_yes') or d.get('kalshiYes'),
+            d.get('edge'),
+            d.get('signal'),
+            d.get('price_gap') or d.get('priceGap'),
+            d.get('ma_struct') or d.get('maStructure'),
+            d.get('rsi_score') or d.get('rsiScore'),
+            d.get('macd_score') or d.get('macdScore'),
+            d.get('sr_score') or d.get('sr'),
+            d.get('mom_score') or d.get('momentumScore'),
+            d.get('total_raw') or d.get('total'),
+            d.get('rsi9') or d.get('rsi'),
+            d.get('macd_val') or d.get('macd'),
+            d.get('ma5'),
+            d.get('ema21'),
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health')
 def health():
     try:
         conn = sqlite3.connect(DB_PATH)
         count = conn.execute('SELECT COUNT(*) FROM trades').fetchone()[0]
+        ps_count = 0
+        try:
+            ps_count = conn.execute('SELECT COUNT(*) FROM ps_data').fetchone()[0]
+        except Exception:
+            pass
         conn.close()
         db_ok = True
     except Exception:
         count = 0
+        ps_count = 0
         db_ok = False
     return jsonify({
         'status': 'ok',
         'db': db_ok,
         'trade_count': count,
+        'ps_data_count': ps_count,
         'time_utc': datetime.now(timezone.utc).isoformat(),
     })
 
