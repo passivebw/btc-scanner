@@ -590,8 +590,8 @@ function renderLeft(btc,kalshi,sc){
   document.getElementById('timeLeft').textContent=mins+'m left';
   document.getElementById('freshBadge').style.display=mins>=12?'inline':'none';
   document.getElementById('finalBadge').style.display=mins<=3?'inline':'none';
-  document.getElementById('upPct').textContent=(wp*100).toFixed(1)+'%';
-  document.getElementById('downPct').textContent=((1-wp)*100).toFixed(1)+'%';
+  document.getElementById('upPct').textContent=(sc.modelUpProb*100).toFixed(1)+'%';
+  document.getElementById('downPct').textContent=((1-sc.modelUpProb)*100).toFixed(1)+'%';
   const ee=document.getElementById('edgeVal');ee.textContent=(edge>=0?'+':''+(edge*100).toFixed(1)+'%');ee.textContent=(edge>=0?'+':'')+( edge*100).toFixed(1)+'%';ee.className=edge>=0?'edge-pos':'edge-neg';
   const cb=document.getElementById('confBadge');cb.textContent=conf;cb.className='conf '+(conf==='HIGH'?'conf-high':conf==='MED'?'conf-med':'conf-low');
 
