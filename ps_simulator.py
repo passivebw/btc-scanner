@@ -170,14 +170,14 @@ def calc_sr(highs, lows, price, thresh):
 # --- Data fetching ---
 
 def fetch_ohlc():
+    # Same source as PS: data-api.binance.vision mirrors api.binance.com BTCUSDT data
     r = requests.get(
-        'https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1',
+        'https://data-api.binance.vision/api/v3/klines'
+        '?symbol=BTCUSDT&interval=1m&limit=100',
         timeout=10
     )
-    d = r.json()
-    if d['error']:
-        raise Exception(f'Kraken: {d["error"]}')
-    ohlc = [v for k, v in d['result'].items() if k != 'last'][0][-100:]
+    r.raise_for_status()
+    ohlc = r.json()
     return (
         [float(x[4]) for x in ohlc],  # closes
         [float(x[1]) for x in ohlc],  # opens

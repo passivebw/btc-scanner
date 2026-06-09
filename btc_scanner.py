@@ -122,8 +122,24 @@ def calc_sr(highs, lows, price, thresh):
     return max(-1.0, min(1.0, s)) * 0.17
 
 
+def fetch_ohlc_binance():
+    # data-api.binance.vision: same BTCUSDT data as api.binance.com, no geo-block
+    r = requests.get(
+        'https://data-api.binance.vision/api/v3/klines'
+        '?symbol=BTCUSDT&interval=1m&limit=100',
+        timeout=10
+    )
+    r.raise_for_status()
+    ohlc = r.json()
+    return (
+        [float(x[4]) for x in ohlc],  # closes
+        [float(x[1]) for x in ohlc],  # opens
+        [float(x[2]) for x in ohlc],  # highs
+        [float(x[3]) for x in ohlc],  # lows
+    )
+
+
 def fetch_ohlc_kraken():
-    # Primary: Kraken 1-min OHLC — reliable from DO server, Binance.com blocked
     r = requests.get(
         'https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1',
         timeout=10
@@ -133,29 +149,28 @@ def fetch_ohlc_kraken():
         raise Exception(f'Kraken: {d["error"]}')
     ohlc = [v for k, v in d['result'].items() if k != 'last'][0][-100:]
     return (
-        [float(x[4]) for x in ohlc],  # closes
-        [float(x[1]) for x in ohlc],  # opens
-        [float(x[2]) for x in ohlc],  # highs
-        [float(x[3]) for x in ohlc],  # lows
+        [float(x[4]) for x in ohlc],
+        [float(x[1]) for x in ohlc],
+        [float(x[2]) for x in ohlc],
+        [float(x[3]) for x in ohlc],
     )
 
 
 def fetch_data():
     try:
-        closes, opens, highs, lows = fetch_ohlc_kraken()
+        closes, opens, highs, lows = fetch_ohlc_binance()
     except Exception as e:
-        log.warning('Kraken unavailable (%s), falling back to CoinGecko', e)
+        log.warning('Binance.vision unavailable (%s), falling back to Kraken', e)
         try:
+            closes, opens, highs, lows = fetch_ohlc_kraken()
+        except Exception as e2:
+            log.warning('Kraken unavailable (%s), falling back to CoinGecko', e2)
             r = requests.get(
                 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
                 '?vs_currency=usd&days=1', timeout=10
             )
             closes = [p[1] for p in r.json()['prices']]
-        except Exception:
-            raise
-        opens = closes
-        highs = closes
-        lows  = closes
+            opens = closes; highs = closes; lows = closes
 
     kalshi = None
     try:

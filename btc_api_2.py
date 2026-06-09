@@ -19,8 +19,29 @@ def fetch_ohlc():
     if _candle_cache['data'] is not None and now - _candle_cache['ts'] < CACHE_TTL:
         return _candle_cache['data']
 
+    # Primary: data-api.binance.vision — same BTCUSDT data as api.binance.com, no geo-block
     try:
-        # Primary: Kraken 1-min OHLC — Binance.com blocked from DO server
+        r = requests.get(
+            'https://data-api.binance.vision/api/v3/klines'
+            '?symbol=BTCUSDT&interval=1m&limit=100',
+            timeout=10
+        )
+        r.raise_for_status()
+        ohlc = r.json()
+        data = {
+            'closes': [float(x[4]) for x in ohlc],
+            'opens':  [float(x[1]) for x in ohlc],
+            'highs':  [float(x[2]) for x in ohlc],
+            'lows':   [float(x[3]) for x in ohlc],
+        }
+        _candle_cache['data'] = data
+        _candle_cache['ts']   = now
+        return data
+    except Exception:
+        pass
+
+    # Fallback: Kraken
+    try:
         r = requests.get(
             'https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1',
             timeout=10
@@ -40,7 +61,7 @@ def fetch_ohlc():
     except Exception:
         pass
 
-    # Fallback: CoinGecko price-only
+    # Last resort: CoinGecko price-only
     r = requests.get(
         'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart'
         '?vs_currency=usd&days=1',
