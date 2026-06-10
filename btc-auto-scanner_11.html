@@ -436,7 +436,8 @@ async function fetchBTC(){
   const closes=d.closes, opens=d.opens||d.closes, highs=d.highs, lows=d.lows;
   const price=closes[closes.length-1];
   const _macd=calcMACD(closes);
-  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,closes,opens,highs,lows,_kalshi:d.kalshi};
+  const momentum=closes.length>=11?closes.slice(-11).reduce((cnt,c,i,arr)=>i>0&&c>=arr[i-1]?cnt+1:cnt,0):5;
+  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,momentum,closes,opens,highs,lows,_kalshi:d.kalshi};
 }
 
 async function fetchKalshi(){

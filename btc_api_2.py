@@ -11,7 +11,7 @@ CORS(app)
 DB_PATH = '/root/trades.db'
 
 _candle_cache = {'data': None, 'ts': 0}
-CACHE_TTL = 60
+CACHE_TTL = 10  # short TTL — binance.vision has no rate limit concern at this frequency
 
 
 def fetch_ohlc():
