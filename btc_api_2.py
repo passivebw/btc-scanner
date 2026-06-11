@@ -93,9 +93,14 @@ def candles():
         return Response(_raw_candle_cache['data'], content_type='application/json',
                         headers={'Cache-Control': 'no-store'})
     try:
+        # PS scans every 5 min (a3e=5*60*1000), so their 100-candle window ends at the
+        # last completed 5-minute boundary. Match that window so EMAs align.
+        now_ms = int(now * 1000)
+        five_min_ms = 5 * 60 * 1000
+        end_time = (now_ms // five_min_ms) * five_min_ms - 1
         r = requests.get(
-            'https://data-api.binance.vision/api/v3/klines'
-            '?symbol=BTCUSDT&interval=1m&limit=100',
+            f'https://data-api.binance.vision/api/v3/klines'
+            f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
             timeout=8,
             headers={'Cache-Control': 'no-cache'},
         )

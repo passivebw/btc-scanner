@@ -160,8 +160,8 @@ def calc_sr(highs, lows, price, thresh):
     for l in lows:
         lvl = round(l / GRID) * GRID; counts[lvl] = counts.get(lvl, 0) + 1
     levels     = sorted((lvl, cnt) for lvl, cnt in counts.items() if cnt >= 2)
-    support    = [lvl for lvl, _ in levels if lvl < thresh][-5:]
-    resistance = [lvl for lvl, _ in levels if lvl > thresh][:5]
+    support    = [lvl for lvl, _ in levels if lvl < price][-5:]   # khe splits by currentPrice
+    resistance = [lvl for lvl, _ in levels if lvl > price][:5]
     s = 0
     for a in resistance:
         w = min(counts[a] * 0.2, 0.8)
@@ -178,10 +178,12 @@ def calc_sr(highs, lows, price, thresh):
 # --- Data fetching ---
 
 def fetch_ohlc():
-    # Same source as PS: data-api.binance.vision mirrors api.binance.com BTCUSDT data
+    # PS scans every 5 min, so their window ends at the last 5-min boundary
+    now_ms = int(time.time() * 1000)
+    end_time = (now_ms // 300_000) * 300_000 - 1
     r = requests.get(
-        'https://data-api.binance.vision/api/v3/klines'
-        '?symbol=BTCUSDT&interval=1m&limit=100',
+        f'https://data-api.binance.vision/api/v3/klines'
+        f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
         timeout=10
     )
     r.raise_for_status()

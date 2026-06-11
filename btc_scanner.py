@@ -115,8 +115,8 @@ def calc_sr(highs, lows, price, thresh):
         lvl = round(l / GRID) * GRID
         counts[lvl] = counts.get(lvl, 0) + 1
     levels     = sorted((lvl, cnt) for lvl, cnt in counts.items() if cnt >= 2)
-    support    = [lvl for lvl, _ in levels if lvl < thresh][-5:]
-    resistance = [lvl for lvl, _ in levels if lvl > thresh][:5]
+    support    = [lvl for lvl, _ in levels if lvl < price][-5:]   # khe splits by currentPrice
+    resistance = [lvl for lvl, _ in levels if lvl > price][:5]
     s = 0
     for a in resistance:
         w = min(counts[a] * 0.2, 0.8)

@@ -179,7 +179,7 @@
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
   <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
-  <span style="color:#444;font-size:10px">v1.7</span>
+  <span style="color:#444;font-size:10px">v1.8</span>
 </div>
 
 <div class="tabs">
@@ -429,8 +429,8 @@ function calcSR(highs,lows,price,thresh){
   highs.forEach(h=>{const l=Math.round(h/GRID)*GRID;counts[l]=(counts[l]||0)+1;});
   lows.forEach(h=>{const l=Math.round(h/GRID)*GRID;counts[l]=(counts[l]||0)+1;});
   const levels=Object.entries(counts).filter(([,c])=>c>=2).map(([l,c])=>({l:+l,c})).sort((a,b)=>a.l-b.l);
-  const support=levels.filter(x=>x.l<thresh).slice(-5);
-  const resist =levels.filter(x=>x.l>thresh).slice(0,5);
+  const support=levels.filter(x=>x.l<price).slice(-5);   // khe splits by currentPrice, not thresh
+  const resist =levels.filter(x=>x.l>price).slice(0,5);
   let s=0;
   resist.forEach(({l:a,c:cnt})=>{const w=Math.min(cnt*0.2,0.8);if(Math.abs(thresh-a)/a<PROX)s-=0.6*w;else if(thresh>a&&a>price)s-=0.4*w;else if(a>thresh)s-=0.1*w;});
   support.forEach(({l:a,c:cnt})=>{const w=Math.min(cnt*0.2,0.8);if(price>a&&a>thresh)s+=0.5*w;else if(Math.abs(price-a)/a<PROX)s+=0.3*w;});
