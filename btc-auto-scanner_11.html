@@ -178,6 +178,8 @@
   <span>Scans: <span id="scanCount">0</span></span>
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
+  <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
+  <span style="color:#444;font-size:10px">v1.6</span>
 </div>
 
 <div class="tabs">
@@ -436,10 +438,22 @@ function calcSR(highs,lows,price,thresh){
 }
 
 async function fetchBTC(){
-  // Fetch candles directly from Binance — same source as PS, real-time, no server cache delay
-  const r=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100');
-  if(!r.ok) throw new Error('Binance fetch failed: '+r.status);
-  const ohlc=await r.json();
+  // Use exact same endpoint as PS: api.binance.com/api/v3/klines (spot BTCUSDT)
+  // data-api.binance.vision may serve different/stale data — use api.binance.com directly
+  let ohlc,src='binance';
+  const bust='&_t='+Date.now();  // prevent browser caching
+  try{
+    const r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100'+bust,{cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    ohlc=await r.json();
+  }catch(e){
+    // Fallback: data-api.binance.vision (server not geo-blocked, but may differ)
+    src='binance.vision';
+    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100'+bust,{cache:'no-store'});
+    if(!r2.ok) throw new Error('Both Binance sources failed');
+    ohlc=await r2.json();
+  }
+  console.log('[fetchBTC] source='+src+' candles='+ohlc.length+' last_close='+parseFloat(ohlc[ohlc.length-1][4]).toFixed(2));
   const closes=ohlc.map(x=>parseFloat(x[4]));
   const opens =ohlc.map(x=>parseFloat(x[1]));
   const highs =ohlc.map(x=>parseFloat(x[2]));
@@ -458,7 +472,8 @@ async function fetchBTC(){
   const momentum=closes.length>=11
     ?closes.slice(-11).reduce((cnt,c,i,arr)=>i>0&&c>=arr[i-1]?cnt+1:cnt,0)
     :5;
-  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,momentum,closes,opens,highs,lows,_kalshi:kalshi};
+  const dsEl=document.getElementById('dataSource');if(dsEl)dsEl.textContent='src:'+src;
+  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,momentum,closes,opens,highs,lows,_kalshi:kalshi,_src:src};
 }
 
 async function fetchKalshi(){
