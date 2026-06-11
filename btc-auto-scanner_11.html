@@ -344,7 +344,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
-const SCAN_INTERVAL = 60000;
+const SCAN_INTERVAL = 15000;  // 15s — match PS live update frequency
 const STAKE = 5;
 const START_BAL = 100;
 const GIST_URL = 'https://gist.githubusercontent.com/passivebw/8060a0bd99f0b8b3cbf2125ab7446b84/raw/config.json';
@@ -436,14 +436,29 @@ function calcSR(highs,lows,price,thresh){
 }
 
 async function fetchBTC(){
-  const r=await fetch(API_BASE+'/scan');
-  const d=await r.json();
-  if(d.error) throw new Error(d.error);
-  const closes=d.closes, opens=d.opens||d.closes, highs=d.highs, lows=d.lows;
+  // Fetch candles directly from Binance — same source as PS, real-time, no server cache delay
+  const r=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100');
+  if(!r.ok) throw new Error('Binance fetch failed: '+r.status);
+  const ohlc=await r.json();
+  const closes=ohlc.map(x=>parseFloat(x[4]));
+  const opens =ohlc.map(x=>parseFloat(x[1]));
+  const highs =ohlc.map(x=>parseFloat(x[2]));
+  const lows  =ohlc.map(x=>parseFloat(x[3]));
+
+  // Kalshi from our server (handles auth + expiry math)
+  let kalshi=null;
+  try{
+    const kr=await fetch(API_BASE+'/scan',{signal:AbortSignal.timeout(4000)});
+    const kd=await kr.json();
+    kalshi=kd.kalshi||null;
+  }catch(e){}
+
   const price=closes[closes.length-1];
   const _macd=calcMACD(closes);
-  const momentum=closes.length>=11?closes.slice(-11).reduce((cnt,c,i,arr)=>i>0&&c>=arr[i-1]?cnt+1:cnt,0):5;
-  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,momentum,closes,opens,highs,lows,_kalshi:d.kalshi};
+  const momentum=closes.length>=11
+    ?closes.slice(-11).reduce((cnt,c,i,arr)=>i>0&&c>=arr[i-1]?cnt+1:cnt,0)
+    :5;
+  return{price,ma5:closes.slice(-5).reduce((a,b)=>a+b,0)/5,ema21:calcEMA(closes,21),rsi9:calcRSI(closes,9),macd:_macd.value,macdSignal:_macd.signal,macdHistogram:_macd.histogram,hourChange:closes.length>=60?((price-closes[0])/closes[0])*100:0,momentum,closes,opens,highs,lows,_kalshi:kalshi};
 }
 
 async function fetchKalshi(){
@@ -576,7 +591,7 @@ async function resolveAll(){
 function fmt3(v){return v.toFixed(3);}
 function scClass(v){return v>0.005?'pos':v<-0.005?'neg':'neu';}
 
-function renderLeft(btc,kalshi,sc){
+function renderLeft(btc,kalshi,sc,kalshiUnavail){
   const{price,ma5,ema21,rsi9,macd,momentum,hourChange}=btc;
   document.getElementById('mPrice').textContent='$'+price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   document.getElementById('mMa5').textContent='$'+Math.round(ma5).toLocaleString();
@@ -584,14 +599,16 @@ function renderLeft(btc,kalshi,sc){
   const re=document.getElementById('mRsi');re.textContent=rsi9.toFixed(1);re.style.color=rsi9>70?'var(--red)':rsi9<30?'var(--green)':'var(--yellow)';
   const me=document.getElementById('mMacd');me.textContent=macd.toFixed(2);me.style.color=macd>0?'var(--green)':'var(--red)';
   const h1=document.getElementById('m1h');h1.textContent=(hourChange>=0?'+':'')+hourChange.toFixed(2)+'%';h1.style.color=hourChange>=0?'var(--green)':'var(--red)';
-  document.getElementById('mMom').textContent=momentum+'/10 '+(momentum>=6?'↑':momentum<=4?'↓':'→');
+  const mom=momentum??5;
+  document.getElementById('mMom').textContent=mom+'/10 '+(mom>=6?'↑':mom<=4?'↓':'→');
 
   const mins=kalshi?.minsLeft||7;
   const modSig=buildSig(sc,kalshi,STRATS.moderate,mins);
   const{signal,dir,edge,ef,mg,ml,ev,wp,conf}=modSig;
 
   const sl=document.getElementById('sigLabel');
-  if(signal==='TRADE'){sl.textContent=dir==='UP'?'▲ TRADE UP':'▼ TRADE DOWN';sl.className='sig-label sig-trade';}
+  if(kalshiUnavail){sl.textContent='⚠ DATA UNAVAILABLE';sl.className='sig-label sig-notrade';}
+  else if(signal==='TRADE'){sl.textContent=dir==='UP'?'▲ TRADE UP':'▼ TRADE DOWN';sl.className='sig-label sig-trade';}
   else if(signal==='TOO_CLOSE'){sl.textContent='⚖ TOO CLOSE';sl.className='sig-label sig-toclose';}
   else{sl.textContent='— NO TRADE';sl.className='sig-label sig-notrade';}
 
@@ -791,9 +808,10 @@ async function scan(){
       minsLeft: Math.max(1, Math.round((new Date(btc._kalshi.expiry)-Date.now())/60000))
     } : null;
     const kalshi=await fetchKalshi();
-    const kalshiData=kalshi||{yesPrice:0.5,minsLeft:7,threshold:btc.price*1.001,ticker:'est_'+Date.now(),expiry:Date.now()+7*60000};
+    const kalshiUnavail=!kalshi&&!btc._kalshi;
+    const kalshiData=kalshi||{yesPrice:0.5,minsLeft:7,threshold:btc.price*1.001,ticker:'est_'+Date.now(),expiry:Date.now()+7*60000,unavailable:kalshiUnavail};
     const sc=scoreIndicators(btc,kalshiData);
-    renderLeft(btc,kalshiData,sc);
+    renderLeft(btc,kalshiData,sc,kalshiUnavail);
     scanCount++;
     if(scanCount===1||scanCount%3===0) await loadFromServer();
     renderRight();
@@ -804,8 +822,9 @@ async function scan(){
 }
 
 function startCountdown(){
-  countdown=60;clearInterval(cdInterval);
-  cdInterval=setInterval(()=>{countdown--;document.getElementById('cdText').textContent=countdown+'s';document.getElementById('progressFill').style.width=(countdown/60*100)+'%';if(countdown<=0)clearInterval(cdInterval);},1000);
+  const secs=SCAN_INTERVAL/1000;
+  countdown=secs;clearInterval(cdInterval);
+  cdInterval=setInterval(()=>{countdown--;document.getElementById('cdText').textContent=countdown+'s';document.getElementById('progressFill').style.width=(countdown/secs*100)+'%';if(countdown<=0)clearInterval(cdInterval);},1000);
 }
 
 function scheduleScan(){scan();startCountdown();scanTimer=setInterval(()=>{scan();startCountdown();},SCAN_INTERVAL);}
