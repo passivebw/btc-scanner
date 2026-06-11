@@ -13,6 +13,9 @@ DB_PATH = '/root/trades.db'
 _candle_cache = {'data': None, 'ts': 0}
 CACHE_TTL = 10  # short TTL — binance.vision has no rate limit concern at this frequency
 
+_raw_candle_cache = {'data': None, 'ts': 0}
+RAW_CACHE_TTL = 5  # 5s — raw klines proxy for browser; matches PS's live feel
+
 
 def fetch_ohlc():
     now = time.time()
@@ -78,6 +81,31 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@app.route('/candles')
+def candles():
+    """Raw kline proxy: browser → our server → data-api.binance.vision.
+    Bypasses CORS block on api.binance.com. 5s cache so 15s scans get fresh data."""
+    from flask import Response
+    now = time.time()
+    if _raw_candle_cache['data'] is not None and now - _raw_candle_cache['ts'] < RAW_CACHE_TTL:
+        return Response(_raw_candle_cache['data'], content_type='application/json',
+                        headers={'Cache-Control': 'no-store'})
+    try:
+        r = requests.get(
+            'https://data-api.binance.vision/api/v3/klines'
+            '?symbol=BTCUSDT&interval=1m&limit=100',
+            timeout=8,
+            headers={'Cache-Control': 'no-cache'},
+        )
+        r.raise_for_status()
+        _raw_candle_cache['data'] = r.text
+        _raw_candle_cache['ts'] = now
+        return Response(r.text, content_type='application/json',
+                        headers={'Cache-Control': 'no-store'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
 
 
 @app.route('/scan')

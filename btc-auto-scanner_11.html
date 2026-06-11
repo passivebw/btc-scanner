@@ -179,7 +179,7 @@
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
   <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
-  <span style="color:#444;font-size:10px">v1.6</span>
+  <span style="color:#444;font-size:10px">v1.7</span>
 </div>
 
 <div class="tabs">
@@ -438,22 +438,23 @@ function calcSR(highs,lows,price,thresh){
 }
 
 async function fetchBTC(){
-  // Use exact same endpoint as PS: api.binance.com/api/v3/klines (spot BTCUSDT)
-  // data-api.binance.vision may serve different/stale data — use api.binance.com directly
-  let ohlc,src='binance';
-  const bust='&_t='+Date.now();  // prevent browser caching
+  // Fetch via our DO server proxy → data-api.binance.vision (no CORS, 5s cache)
+  // api.binance.com blocked by CORS on GitHub Pages; server-side proxy solves it
+  let ohlc,src='server';
   try{
-    const r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100'+bust,{cache:'no-store'});
+    const r=await fetch(API_BASE+'/candles?_t='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(6000)});
     if(!r.ok) throw new Error(r.status);
-    ohlc=await r.json();
+    const body=await r.json();
+    if(body.error) throw new Error(body.error);
+    ohlc=body;
   }catch(e){
-    // Fallback: data-api.binance.vision (server not geo-blocked, but may differ)
-    src='binance.vision';
-    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100'+bust,{cache:'no-store'});
-    if(!r2.ok) throw new Error('Both Binance sources failed');
+    // Fallback: hit data-api.binance.vision directly (may be CORS-ok)
+    src='vision-direct';
+    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&_t='+Date.now(),{cache:'no-store'});
+    if(!r2.ok) throw new Error('All candle sources failed');
     ohlc=await r2.json();
   }
-  console.log('[fetchBTC] source='+src+' candles='+ohlc.length+' last_close='+parseFloat(ohlc[ohlc.length-1][4]).toFixed(2));
+  console.log('[fetchBTC] src='+src+' n='+ohlc.length+' last='+parseFloat(ohlc[ohlc.length-1][4]).toFixed(2));
   const closes=ohlc.map(x=>parseFloat(x[4]));
   const opens =ohlc.map(x=>parseFloat(x[1]));
   const highs =ohlc.map(x=>parseFloat(x[2]));
