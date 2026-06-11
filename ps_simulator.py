@@ -27,8 +27,16 @@ log = logging.getLogger(__name__)
 DB_PATH  = '/root/trades.db'
 INTERVAL = 60
 
-TIME_MULT = {1:68.2,2:71.2,3:63.1,4:64.5,5:65.0,6:52.0,7:50.8,
-             8:49.0,9:48.6,10:49.2,11:40.6,12:39.2,13:35.3,14:29.8}
+# PS $he(minutesRemaining, gapPct) — exact port from bundle
+def calc_time_mult(mins, gap_pct):
+    if   mins <= 2:  r = 1.8
+    elif mins <= 5:  r = 1.5
+    elif mins <= 10: r = 1.2
+    elif mins <= 15: r = 1.0
+    else:            r = 0.85
+    if   gap_pct < 0.05:               r *= 0.6
+    elif gap_pct > 0.5 and mins <= 5:  r *= 1.3
+    return r
 
 
 def init_db():
@@ -275,9 +283,10 @@ def score(closes, opens, highs, lows, kalshi):
     sr        = calc_sr(highs, lows, price, thresh)
     mom_score = calc_mom(closes, opens)
 
-    total = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
-    mult  = TIME_MULT.get(min(14, max(1, mins_left)), 48)
-    up_pct = max(1.0, min(99.0, 50.0 + total * mult))
+    total   = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
+    gap_pct = abs(price - thresh) / price * 100
+    mult    = calc_time_mult(mins_left, gap_pct)
+    up_pct  = max(3.0, min(97.0, 50.0 + total * mult * 45))
 
     yes_price = kalshi.get('kalshi_yes', 0.50)
     edge = (up_pct / 100) - yes_price

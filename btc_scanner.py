@@ -22,8 +22,16 @@ DB_PATH = '/root/trades.db'
 SCAN_INTERVAL = 20
 STAKE = 5
 STRATS = {'conservative': 0.30, 'moderate': 0.20, 'aggressive': 0.12}
-TIME_MULT = {1:68.2, 2:71.2, 3:63.1, 4:64.5, 5:65.0, 6:52.0, 7:50.8,
-             8:49.0, 9:48.6, 10:49.2, 11:40.6, 12:39.2, 13:35.3, 14:29.8}
+# PS $he(minutesRemaining, gapPct) — exact port from bundle
+def calc_time_mult(mins, gap_pct):
+    if   mins <= 2:  r = 1.8
+    elif mins <= 5:  r = 1.5
+    elif mins <= 10: r = 1.2
+    elif mins <= 15: r = 1.0
+    else:            r = 0.85
+    if   gap_pct < 0.05:           r *= 0.6   # too close to threshold
+    elif gap_pct > 0.5 and mins <= 5: r *= 1.3  # large gap, final minutes
+    return r
 
 
 def init_db():
@@ -266,8 +274,10 @@ def score_indicators(closes, opens, highs, lows, kalshi):
 
     total = price_gap + ma_struct + rsi_score + macd_score + sr + mom_score
 
-    mult = TIME_MULT.get(min(14, max(1, mins_left)), 48)
-    model_up_prob = max(0.01, min(0.99, 0.50 + total * mult / 100))
+    gap_pct = abs(price - thresh) / price * 100
+    mult = calc_time_mult(mins_left, gap_pct)
+    time_adj = total * mult
+    model_up_prob = max(0.03, min(0.97, 0.50 + time_adj * 0.45))
 
     return {
         'price': price, 'ma5': ma5, 'ema21': ema21, 'rsi9': rsi9, 'macd': macd_val,
