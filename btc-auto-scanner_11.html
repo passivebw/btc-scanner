@@ -162,7 +162,7 @@
 <div class="topbar">
   <div>
     <div class="logo">₿ BTC SCANNER <span>+ AUTO PAPER TRADER</span></div>
-    <div class="status-text">Kalshi 15-min contracts • Auto-scans every 20s • All 3 strategies tracked simultaneously</div>
+    <div class="status-text">Kalshi 15-min contracts • Auto-scans every 60s • All 3 strategies tracked simultaneously</div>
   </div>
   <div class="topbar-right">
     <span class="live-dot" id="liveDot"></span>
@@ -179,7 +179,7 @@
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
   <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
-  <span style="color:#444;font-size:10px">v1.10</span>
+  <span style="color:#444;font-size:10px">v1.11</span>
 </div>
 
 <div class="tabs">
@@ -455,8 +455,7 @@ async function fetchBTC(){
   }catch(e){
     // Fallback: hit data-api.binance.vision directly (may be CORS-ok)
     src='vision-direct';
-    const endMs=Math.floor(Date.now()/60000)*60000-1;
-    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&endTime='+endMs+'&_t='+Date.now(),{cache:'no-store'});
+    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&_t='+Date.now(),{cache:'no-store'});
     if(!r2.ok) throw new Error('All candle sources failed');
     ohlc=await r2.json();
   }

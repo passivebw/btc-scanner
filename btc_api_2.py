@@ -93,14 +93,13 @@ def candles():
         return Response(_raw_candle_cache['data'], content_type='application/json',
                         headers={'Cache-Control': 'no-store'})
     try:
-        # End at the last completed 1-minute candle so we never include a
-        # partially-formed candle — matches PS behavior (PS's window always
-        # ends at whatever minute closed most recently when it scanned).
-        now_ms = int(now * 1000)
-        end_time = (now_ms // 60_000) * 60_000 - 1
+        # No endTime — PS uses bhe("1m",100) with no endTime, so it includes
+        # the currently-forming candle. Matching that gives us the same live
+        # price PS sees; using a stale endTime can put BTC on the wrong side
+        # of the threshold and completely flip the price-gap sign.
         r = requests.get(
-            f'https://data-api.binance.vision/api/v3/klines'
-            f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
+            'https://data-api.binance.vision/api/v3/klines'
+            '?symbol=BTCUSDT&interval=1m&limit=100',
             timeout=8,
             headers={'Cache-Control': 'no-cache'},
         )

@@ -131,11 +131,9 @@ def calc_sr(highs, lows, price, thresh):
 
 
 def fetch_ohlc_binance():
-    now_ms = int(time.time() * 1000)
-    end_time = (now_ms // 60_000) * 60_000 - 1  # last complete minute
     r = requests.get(
-        f'https://data-api.binance.vision/api/v3/klines'
-        f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
+        'https://data-api.binance.vision/api/v3/klines'
+        '?symbol=BTCUSDT&interval=1m&limit=100',
         timeout=10
     )
     r.raise_for_status()
