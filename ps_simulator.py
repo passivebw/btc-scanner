@@ -205,27 +205,37 @@ def fetch_kalshi():
                 timeout=5
             )
             markets = r.json().get('markets', [])
-            if markets:
-                markets.sort(key=lambda m: m.get('close_time') or '')
-                active = markets[0]
-                yp = float(active.get('yes_ask_dollars') or
-                            active.get('last_price_dollars') or 0.5)
-                if yp > 1:
-                    yp /= 100
-                expiry = active.get('close_time')
-                mins_left = 7
-                if expiry:
-                    exp_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
-                    mins_left = max(1, round(
-                        (exp_dt - datetime.now(timezone.utc)).total_seconds() / 60
-                    ))
-                return {
-                    'threshold':  active.get('floor_strike') or active.get('cap_strike'),
-                    'ticker':     active.get('ticker'),
-                    'kalshi_yes': yp,
-                    'mins_left':  mins_left,
-                    'expiry':     expiry,
-                }
+            if not markets:
+                continue
+            # Filter to markets within 20 min (matches PS qH filter)
+            now_dt = datetime.now(timezone.utc)
+            def _ml(m):
+                ct = m.get('close_time')
+                if not ct: return 999
+                try:
+                    exp = datetime.fromisoformat(ct.replace('Z', '+00:00'))
+                    return (exp - now_dt).total_seconds() / 60
+                except Exception:
+                    return 999
+            markets = [m for m in markets if 0 < _ml(m) <= 20]
+            if not markets:
+                continue
+            markets.sort(key=lambda m: m.get('close_time') or '')
+            active = markets[0]
+            yp = float(active.get('yes_ask_dollars') or
+                        active.get('last_price_dollars') or 0.5)
+            if yp > 1:
+                yp /= 100
+            expiry = active.get('close_time')
+            exp_dt = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
+            mins_left = max(1, round((exp_dt - now_dt).total_seconds() / 60))
+            return {
+                'threshold':  active.get('floor_strike') or active.get('cap_strike'),
+                'ticker':     active.get('ticker'),
+                'kalshi_yes': yp,
+                'mins_left':  mins_left,
+                'expiry':     expiry,
+            }
         except Exception:
             continue
     return {}

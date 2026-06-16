@@ -138,8 +138,20 @@ def scan():
                 )
                 markets = kr2.json().get('markets', [])
             if markets:
-                # Among the soonest-expiring markets, pick threshold closest to
-                # current BTC price — matches PS's market selection behavior.
+                # Filter to markets within 20 min (matches PS qH filter l>20→null)
+                now_dt = datetime.now(timezone.utc)
+                def mins_left(m):
+                    ct = m.get('close_time')
+                    if not ct: return 999
+                    try:
+                        exp = datetime.fromisoformat(ct.replace('Z', '+00:00'))
+                        return (exp - now_dt).total_seconds() / 60
+                    except Exception:
+                        return 999
+                markets = [m for m in markets if 0 < mins_left(m) <= 20]
+                if not markets:
+                    raise Exception('no active KXBTC15M markets within 20 min')
+                # Among valid markets, sort by expiry then by |threshold - price|
                 current_price = float(closes[-1]) if closes else None
                 def market_sort_key(m):
                     thresh = m.get('floor_strike') or m.get('cap_strike') or 0

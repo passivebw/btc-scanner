@@ -195,22 +195,35 @@ def fetch_data():
             )
             markets = kr2.json().get('markets', [])
         if markets:
-            current_price = closes[-1] if closes else None
-            def _mk(m):
-                thresh = m.get('floor_strike') or m.get('cap_strike') or 0
-                dist = abs(thresh - current_price) if current_price else 0
-                return (m.get('close_time') or '', dist)
-            markets.sort(key=_mk)
-            active = markets[0]
-            yp = float(active.get('yes_ask_dollars') or active.get('last_price_dollars') or 0.5)
-            if yp > 1:
-                yp = yp / 100
-            kalshi = {
-                'yes_price': yp,
-                'threshold': active.get('floor_strike') or active.get('cap_strike'),
-                'ticker': active.get('ticker'),
-                'expiry': active.get('close_time'),
-            }
+            now_dt = datetime.now(timezone.utc)
+            def _mins(m):
+                ct = m.get('close_time')
+                if not ct: return 999
+                try:
+                    exp = datetime.fromisoformat(ct.replace('Z', '+00:00'))
+                    return (exp - now_dt).total_seconds() / 60
+                except Exception:
+                    return 999
+            markets = [m for m in markets if 0 < _mins(m) <= 20]
+            if not markets:
+                log.info('Kalshi: no KXBTC15M markets within 20min — skipping')
+            else:
+                current_price = closes[-1] if closes else None
+                def _mk(m):
+                    thresh = m.get('floor_strike') or m.get('cap_strike') or 0
+                    dist = abs(thresh - current_price) if current_price else 0
+                    return (m.get('close_time') or '', dist)
+                markets.sort(key=_mk)
+                active = markets[0]
+                yp = float(active.get('yes_ask_dollars') or active.get('last_price_dollars') or 0.5)
+                if yp > 1:
+                    yp = yp / 100
+                kalshi = {
+                    'yes_price': yp,
+                    'threshold': active.get('floor_strike') or active.get('cap_strike'),
+                    'ticker': active.get('ticker'),
+                    'expiry': active.get('close_time'),
+                }
     except Exception as e:
         log.warning('Kalshi fetch failed: %s', e)
 
