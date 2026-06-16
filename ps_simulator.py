@@ -178,9 +178,9 @@ def calc_sr(highs, lows, price, thresh):
 # --- Data fetching ---
 
 def fetch_ohlc():
-    # PS scans every 5 min, so their window ends at the last 5-min boundary
+    # End at last completed 1-minute candle (no partial candles)
     now_ms = int(time.time() * 1000)
-    end_time = (now_ms // 300_000) * 300_000 - 1
+    end_time = (now_ms // 60_000) * 60_000 - 1
     r = requests.get(
         f'https://data-api.binance.vision/api/v3/klines'
         f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',

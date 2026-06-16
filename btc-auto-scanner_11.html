@@ -179,7 +179,7 @@
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
   <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
-  <span style="color:#444;font-size:10px">v1.8</span>
+  <span style="color:#444;font-size:10px">v1.9</span>
 </div>
 
 <div class="tabs">
@@ -346,7 +346,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
-const SCAN_INTERVAL = 15000;  // 15s — match PS live update frequency
+const SCAN_INTERVAL = 60000;  // 60s — PS scans every 5min; 60s gives fresh data without hammering API
 const STAKE = 5;
 const START_BAL = 100;
 const GIST_URL = 'https://gist.githubusercontent.com/passivebw/8060a0bd99f0b8b3cbf2125ab7446b84/raw/config.json';
@@ -450,7 +450,8 @@ async function fetchBTC(){
   }catch(e){
     // Fallback: hit data-api.binance.vision directly (may be CORS-ok)
     src='vision-direct';
-    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&_t='+Date.now(),{cache:'no-store'});
+    const endMs=Math.floor(Date.now()/60000)*60000-1;
+    const r2=await fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&endTime='+endMs+'&_t='+Date.now(),{cache:'no-store'});
     if(!r2.ok) throw new Error('All candle sources failed');
     ohlc=await r2.json();
   }

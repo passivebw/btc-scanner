@@ -131,10 +131,11 @@ def calc_sr(highs, lows, price, thresh):
 
 
 def fetch_ohlc_binance():
-    # data-api.binance.vision: same BTCUSDT data as api.binance.com, no geo-block
+    now_ms = int(time.time() * 1000)
+    end_time = (now_ms // 60_000) * 60_000 - 1  # last complete minute
     r = requests.get(
-        'https://data-api.binance.vision/api/v3/klines'
-        '?symbol=BTCUSDT&interval=1m&limit=100',
+        f'https://data-api.binance.vision/api/v3/klines'
+        f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
         timeout=10
     )
     r.raise_for_status()
@@ -194,7 +195,12 @@ def fetch_data():
             )
             markets = kr2.json().get('markets', [])
         if markets:
-            markets.sort(key=lambda m: m.get('close_time') or '')
+            current_price = closes[-1] if closes else None
+            def _mk(m):
+                thresh = m.get('floor_strike') or m.get('cap_strike') or 0
+                dist = abs(thresh - current_price) if current_price else 0
+                return (m.get('close_time') or '', dist)
+            markets.sort(key=_mk)
             active = markets[0]
             yp = float(active.get('yes_ask_dollars') or active.get('last_price_dollars') or 0.5)
             if yp > 1:

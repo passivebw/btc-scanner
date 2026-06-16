@@ -93,11 +93,11 @@ def candles():
         return Response(_raw_candle_cache['data'], content_type='application/json',
                         headers={'Cache-Control': 'no-store'})
     try:
-        # PS scans every 5 min (a3e=5*60*1000), so their 100-candle window ends at the
-        # last completed 5-minute boundary. Match that window so EMAs align.
+        # End at the last completed 1-minute candle so we never include a
+        # partially-formed candle — matches PS behavior (PS's window always
+        # ends at whatever minute closed most recently when it scanned).
         now_ms = int(now * 1000)
-        five_min_ms = 5 * 60 * 1000
-        end_time = (now_ms // five_min_ms) * five_min_ms - 1
+        end_time = (now_ms // 60_000) * 60_000 - 1
         r = requests.get(
             f'https://data-api.binance.vision/api/v3/klines'
             f'?symbol=BTCUSDT&interval=1m&limit=100&endTime={end_time}',
@@ -138,7 +138,14 @@ def scan():
                 )
                 markets = kr2.json().get('markets', [])
             if markets:
-                markets.sort(key=lambda m: m.get('close_time') or '')
+                # Among the soonest-expiring markets, pick threshold closest to
+                # current BTC price — matches PS's market selection behavior.
+                current_price = float(closes[-1]) if closes else None
+                def market_sort_key(m):
+                    thresh = m.get('floor_strike') or m.get('cap_strike') or 0
+                    dist = abs(thresh - current_price) if current_price else 0
+                    return (m.get('close_time') or '', dist)
+                markets.sort(key=market_sort_key)
                 active = markets[0]
                 yp = float(
                     active.get('yes_ask_dollars') or
