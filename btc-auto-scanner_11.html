@@ -179,7 +179,7 @@
   <span>Last: <span id="lastScan">--</span></span>
   <span style="color:var(--text3)">All 3 strategies auto-logged simultaneously</span>
   <span id="dataSource" style="color:var(--text3);font-size:10px">src:--</span>
-  <span style="color:#444;font-size:10px">v1.9</span>
+  <span style="color:#444;font-size:10px">v1.10</span>
 </div>
 
 <div class="tabs">
@@ -383,10 +383,15 @@ function serverToTrade(r){
 
 async function loadFromServer(){
   try{
-    const r=await fetch(API_BASE+'/trades?limit=400');
+    const r=await fetch(API_BASE+'/trades?limit=100');
     const data=await r.json();
     if(Array.isArray(data)){trades=data.map(serverToTrade);}
   }catch(e){console.warn('Server trade load failed:',e);}
+  try{
+    const r=await fetch(API_BASE+'/stats');
+    const data=await r.json();
+    if(data&&data.conservative)window._serverStats=data;
+  }catch(e){console.warn('Server stats load failed:',e);}
 }
 
 function load(){}
@@ -700,20 +705,25 @@ function calcStratStats(strat){
 
 function renderRight(){
   const s=calcStratStats('moderate');
-  const pb=document.getElementById('pBalance');pb.textContent='$'+s.balance.toFixed(2);pb.style.color=s.balance>=START_BAL?'var(--green)':'var(--red)';
-  const pp=document.getElementById('pPnl');pp.textContent=(s.totalPnl>=0?'+':'')+' $'+Math.abs(s.totalPnl).toFixed(2);pp.style.color=s.totalPnl>=0?'var(--green)':'var(--red)';
+  const srv=window._serverStats&&window._serverStats.moderate;
+  const totalPnl=srv?srv.pnl:s.totalPnl;
+  const balance=START_BAL+totalPnl;
+  const winRate=srv?srv.win_rate:s.winRate;
+  const resolvedCount=srv?srv.resolved:s.resolved.length;
+  const pb=document.getElementById('pBalance');pb.textContent='$'+balance.toFixed(2);pb.style.color=balance>=START_BAL?'var(--green)':'var(--red)';
+  const pp=document.getElementById('pPnl');pp.textContent=(totalPnl>=0?'+':'')+' $'+Math.abs(totalPnl).toFixed(2);pp.style.color=totalPnl>=0?'var(--green)':'var(--red)';
   const pw=document.getElementById('pWinRate');
-  if(s.winRate!==null){pw.textContent=(s.winRate*100).toFixed(1)+'%';pw.style.color=s.winRate>=0.55?'var(--green)':s.winRate>=0.45?'var(--yellow)':'var(--red)';}
-  else{pw.textContent=s.resolved.length+'/5';pw.style.color='var(--yellow)';}
-  document.getElementById('pTrades').textContent=s.real.length;
-  document.getElementById('pPending').textContent=s.pending.length;
+  if(winRate!==null&&resolvedCount>=5){pw.textContent=(winRate*100).toFixed(1)+'%';pw.style.color=winRate>=0.55?'var(--green)':winRate>=0.45?'var(--yellow)':'var(--red)';}
+  else{pw.textContent=resolvedCount+'/5';pw.style.color='var(--yellow)';}
+  document.getElementById('pTrades').textContent=srv?srv.fired:s.real.length;
+  document.getElementById('pPending').textContent=srv?srv.pending:s.pending.length;
   const pe=document.getElementById('pAvgEV');
   if(s.avgEV!==null){pe.textContent=(s.avgEV>=0?'+':'')+' $'+Math.abs(s.avgEV).toFixed(3);pe.style.color=s.avgEV>=0?'var(--green)':'var(--red)';}
   else{pe.textContent='--';pe.style.color='var(--yellow)';}
   if(s.kelly!==null){
     document.getElementById('kellyPct').textContent=(s.kelly*100).toFixed(1)+'%';
-    document.getElementById('kellyDollar').textContent='$'+(s.kelly*s.balance).toFixed(2);
-    document.getElementById('kellyNote').textContent=s.kelly>0?`Half-Kelly from ${s.resolved.length} trades. Win: ${(s.winRate*100).toFixed(1)}%`:'Negative Kelly — no edge yet.';
+    document.getElementById('kellyDollar').textContent='$'+(s.kelly*balance).toFixed(2);
+    document.getElementById('kellyNote').textContent=s.kelly>0?`Half-Kelly from ${resolvedCount} trades. Win: ${winRate!==null?(winRate*100).toFixed(1)+'%':'--'}`:'Negative Kelly — no edge yet.';
   }
   renderMiniChart('pnlChart','moderate',150);
   renderTradeLog();
@@ -751,16 +761,22 @@ function renderMiniChart(canvasId,strat,height){
 function renderComparison(){
   ['conservative','moderate','aggressive'].forEach(strat=>{
     const s=calcStratStats(strat);
+    const srv=window._serverStats&&window._serverStats[strat];
     const col=STRAT_COLORS[strat];
-    const wr=s.winRate!==null?(s.winRate*100).toFixed(1)+'%':s.resolved.length+'/5 needed';
-    const wrColor=s.winRate===null?'var(--text3)':s.winRate>=0.55?'var(--green)':s.winRate>=0.45?'var(--yellow)':'var(--red)';
+    const totalPnl=srv?srv.pnl:s.totalPnl;
+    const balance=START_BAL+totalPnl;
+    const winRate=srv?srv.win_rate:s.winRate;
+    const resolvedCount=srv?srv.resolved:s.resolved.length;
+    const firedCount=srv?srv.fired:s.real.length;
+    const wr=winRate!==null&&resolvedCount>=5?(winRate*100).toFixed(1)+'%':resolvedCount+'/5 needed';
+    const wrColor=resolvedCount<5?'var(--text3)':winRate>=0.55?'var(--green)':winRate>=0.45?'var(--yellow)':'var(--red)';
     const kelly=s.kelly!==null?(s.kelly>0?(s.kelly*100).toFixed(1)+'%':'No edge'):'--';
     document.getElementById('stats-'+strat).innerHTML=`
-      <div class="ss-row"><span class="ss-label">Trades fired</span><span class="ss-val" style="color:${col}">${s.real.length}</span></div>
-      <div class="ss-row"><span class="ss-label">Resolved</span><span class="ss-val">${s.resolved.length}</span></div>
+      <div class="ss-row"><span class="ss-label">Trades fired</span><span class="ss-val" style="color:${col}">${firedCount}</span></div>
+      <div class="ss-row"><span class="ss-label">Resolved</span><span class="ss-val">${resolvedCount}</span></div>
       <div class="ss-row"><span class="ss-label">Win rate</span><span class="ss-val" style="color:${wrColor}">${wr}</span></div>
-      <div class="ss-row"><span class="ss-label">Total P&L</span><span class="ss-val" style="color:${s.totalPnl>=0?'var(--green)':'var(--red)'}">${s.totalPnl>=0?'+':''}$${Math.abs(s.totalPnl).toFixed(2)}</span></div>
-      <div class="ss-row"><span class="ss-label">Balance</span><span class="ss-val" style="color:${s.balance>=START_BAL?'var(--green)':'var(--red)'}">${'$'+s.balance.toFixed(2)}</span></div>
+      <div class="ss-row"><span class="ss-label">Total P&L</span><span class="ss-val" style="color:${totalPnl>=0?'var(--green)':'var(--red)'}">${totalPnl>=0?'+':''}$${Math.abs(totalPnl).toFixed(2)}</span></div>
+      <div class="ss-row"><span class="ss-label">Balance</span><span class="ss-val" style="color:${balance>=START_BAL?'var(--green)':'var(--red)'}">$${balance.toFixed(2)}</span></div>
       <div class="ss-row"><span class="ss-label">Avg EV</span><span class="ss-val" style="color:${s.avgEV===null?'var(--text3)':s.avgEV>=0?'var(--green)':'var(--red)'}">${s.avgEV!==null?(s.avgEV>=0?'+':'')+' $'+Math.abs(s.avgEV).toFixed(3):'--'}</span></div>
       <div class="ss-row"><span class="ss-label">Kelly size</span><span class="ss-val" style="color:${s.kelly>0?'var(--green)':'var(--red)'}">${kelly}</span></div>
     `;
@@ -771,10 +787,12 @@ function renderComparison(){
     card.classList.remove('winner');
   });
 
-  // Find and highlight winner by P&L
-  const pnls={conservative:calcStratStats('conservative').totalPnl,moderate:calcStratStats('moderate').totalPnl,aggressive:calcStratStats('aggressive').totalPnl};
+  // Find and highlight winner by P&L using full server stats
+  const getSrvPnl=strat=>{const srv=window._serverStats&&window._serverStats[strat];return srv?srv.pnl:calcStratStats(strat).totalPnl;};
+  const getSrvResolved=strat=>{const srv=window._serverStats&&window._serverStats[strat];return srv?srv.resolved:calcStratStats(strat).resolved.length;};
+  const pnls={conservative:getSrvPnl('conservative'),moderate:getSrvPnl('moderate'),aggressive:getSrvPnl('aggressive')};
   const best=Object.entries(pnls).sort((a,b)=>b[1]-a[1])[0][0];
-  if(calcStratStats(best).resolved.length>=5)document.getElementById('card-'+best).classList.add('winner');
+  if(getSrvResolved(best)>=5)document.getElementById('card-'+best).classList.add('winner');
 
   // Full comparison table
   const allKeys=[...new Set(trades.map(t=>t.contractKey))];
