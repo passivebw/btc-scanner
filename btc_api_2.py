@@ -14,7 +14,7 @@ _candle_cache = {'data': None, 'ts': 0}
 CACHE_TTL = 10  # short TTL — binance.vision has no rate limit concern at this frequency
 
 _raw_candle_cache = {'data': None, 'ts': 0}
-RAW_CACHE_TTL = 5  # 5s — raw klines proxy for browser; matches PS's live feel
+RAW_CACHE_TTL = 2  # 2s — minimize lag vs PS's direct Binance connection
 
 
 def fetch_ohlc():
