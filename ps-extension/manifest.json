@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "PS Data Collector",
+  "version": "1.0",
+  "description": "Auto-collects Purple Salmon Pavlov Lab data every 60s and syncs to BTC scanner server",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://purplesalmon.xyz/pavlov-lab*",
+        "*://purplesalmon.xyz/pavlov-lab/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "*://purplesalmon.xyz/*",
+    "*://gist.githubusercontent.com/*",
+    "*://*.trycloudflare.com/*"
+  ]
+}

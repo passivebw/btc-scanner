@@ -316,6 +316,76 @@ def ps_log():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/ps-compare')
+def ps_compare():
+    """Side-by-side: actual PS readings (source=browser) vs our formula (source=simulator).
+    Matched by nearest timestamp within 2 minutes."""
+    try:
+        limit = min(int(request.args.get('limit', 500)), 2000)
+        conn  = get_db()
+        browser = conn.execute(
+            "SELECT * FROM ps_data WHERE source='browser' ORDER BY timestamp_utc DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        sims = conn.execute(
+            "SELECT * FROM ps_data WHERE source='simulator' ORDER BY timestamp_utc DESC LIMIT ?",
+            (limit * 3,)
+        ).fetchall()
+        conn.close()
+
+        from datetime import datetime as _dt
+
+        def _ts(s):
+            try:
+                return _dt.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+            except Exception:
+                return 0.0
+
+        sim_pairs = [(_ts(r['timestamp_utc']), r) for r in sims]
+
+        result = []
+        for b in browser:
+            bt  = _ts(b['timestamp_utc'])
+            row = {
+                'timestamp':     b['timestamp_utc'],
+                'btc_price':     b['btc_price'],
+                'threshold':     b['threshold'],
+                'ticker':        b['ticker'],
+                'mins_left':     b['mins_left'],
+                'ps_up_pct':     b['up_pct'],
+                'ps_total':      b['total_raw'],
+                'ps_rsi':        b['rsi9'],
+                'ps_macd':       b['macd_val'],
+                'ps_price_gap':  b['price_gap'],
+                'ps_ma_struct':  b['ma_struct'],
+                'ps_rsi_score':  b['rsi_score'],
+                'ps_macd_score': b['macd_score'],
+                'ps_sr':         b['sr_score'],
+                'ps_mom':        b['mom_score'],
+                'ps_signal':     b['signal'],
+            }
+            if sim_pairs:
+                best_t, best_r = min(sim_pairs, key=lambda x: abs(x[0] - bt))
+                if abs(best_t - bt) < 120:   # within 2 min
+                    row.update({
+                        'our_up_pct':     best_r['up_pct'],
+                        'our_total':      best_r['total_raw'],
+                        'our_rsi':        best_r['rsi9'],
+                        'our_macd':       best_r['macd_val'],
+                        'our_price_gap':  best_r['price_gap'],
+                        'our_ma_struct':  best_r['ma_struct'],
+                        'our_rsi_score':  best_r['rsi_score'],
+                        'our_macd_score': best_r['macd_score'],
+                        'our_sr':         best_r['sr_score'],
+                        'our_mom':        best_r['mom_score'],
+                        'our_signal':     best_r['signal'],
+                    })
+            result.append(row)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health')
 def health():
     try:
