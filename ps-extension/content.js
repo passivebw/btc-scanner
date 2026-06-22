@@ -73,14 +73,29 @@
 
     // Signal — most specific first
     let signal = 'UNKNOWN';
-    if      (/TOO CLOSE/i.test(text))            signal = 'TOO_CLOSE';
-    else if (/NO TRADE/i.test(text))             signal = 'NO_TRADE';
-    else if (/YES ABOVE|BUY YES/i.test(text))    signal = 'YES_ABOVE';
-    else if (/NO BELOW|BUY NO/i.test(text))      signal = 'NO_BELOW';
-    else if (/\bABOVE\b/i.test(text))            signal = 'YES_ABOVE';
-    else if (/\bBELOW\b/i.test(text))            signal = 'NO_BELOW';
+    if      (/TOO CLOSE/i.test(text))                          signal = 'TOO_CLOSE';
+    else if (/NO TRADE/i.test(text))                           signal = 'NO_TRADE';
+    else if (/BTC ABOVE|YES ABOVE|BUY YES/i.test(text))        signal = 'YES_ABOVE';
+    else if (/BTC BELOW|NO BELOW|BUY NO/i.test(text))          signal = 'NO_BELOW';
+    else if (/\bABOVE\b/i.test(text))                          signal = 'YES_ABOVE';
+    else if (/\bBELOW\b/i.test(text))                          signal = 'NO_BELOW';
 
     const kalshiRaw = num(get(/Kalshi:\s*(\d+)%/));
+
+    // Component scores — [\s\n]+ handles both "Score Breakdown" (label\nvalue)
+    // and "Factor Breakdown" (label  value) layouts
+    const price_gap = num(get(/Price Gap[\s\n]+([-\d\.]+)/));
+    const ma_struct = num(get(/MA Structure[\s\n]+([-\d\.]+)/));
+    const rsi_score = num(get(/RSI[\s\n]+([-\d\.]+)/));         // RSI(9) has ( next so won't match
+    const sr_score  = num(get(/(?:Support\/Resistance|S\/R(?:\s+Zones?)?)[\s\n]+([-\d\.]+)/));
+    const mom_score = num(get(/Momentum[\s\n]+([-\d\.]+)/));
+
+    // Total: explicit label first, then sum components as fallback
+    let total_raw = num(get(/Total:\s*([-\d\.]+)/));
+    if (total_raw == null) {
+      const parts = [price_gap, ma_struct, rsi_score, sr_score, mom_score].filter(x => x != null);
+      if (parts.length >= 4) total_raw = Math.round(parts.reduce((a, b) => a + b, 0) * 1000) / 1000;
+    }
 
     return {
       timestamp_utc: new Date().toISOString(),
@@ -89,14 +104,14 @@
       up_pct:        upPct,
       ma5:           num(get(/MA\(5\)\s*\$([\d,\.]+)/)),
       ema21:         num(get(/EMA\(21\)\s*\$([\d,\.]+)/)),
-      rsi9:          num(get(/RSI\(9\)\s*([\d\.]+)/)),
-      macd_val:      num(get(/MACD\n([-\d\.]+)/)),
-      price_gap:     num(get(/Price Gap\n([-\d\.]+)/)),
-      ma_struct:     num(get(/MA Structure\n([-\d\.]+)/)),
-      rsi_score:     num(get(/RSI\n([-\d\.]+)/)),
-      sr_score:      num(get(/Support\/Resistance\n([-\d\.]+)/)),
-      mom_score:     num(get(/Momentum\n([-\d\.]+)/)),
-      total_raw:     num(get(/Total:\s*([-\d\.]+)/)),
+      rsi9:          num(get(/RSI\(9\)[\s\n]+([\d\.]+)/)),
+      macd_val:      num(get(/MACD[\s\n]+([-\d\.]+)/)),
+      price_gap,
+      ma_struct,
+      rsi_score,
+      sr_score,
+      mom_score,
+      total_raw,
       kalshi_yes:    kalshiRaw != null ? kalshiRaw / 100 : null,
       mins_left:     num(get(/(\d+)m left/i)),
       signal,
