@@ -82,6 +82,11 @@
 
     const kalshiRaw = num(get(/Kalshi:\s*(\d+)%/));
 
+    // Threshold — shown as "BTC ABOVE $64,336.43" or "BTC BELOW $63,971.51"
+    // or just "$64,336.43 | 7% left" in compact view
+    const threshold = num(get(/BTC (?:ABOVE|BELOW)\s*\$([\d,]+(?:\.\d+)?)/i))
+                   || num(get(/\$([\d,]+(?:\.\d+)?)\s*\|\s*\d+[%m]/i));
+
     // Component scores — [\s\n]+ handles both "Score Breakdown" (label\nvalue)
     // and "Factor Breakdown" (label  value) layouts
     const price_gap = num(get(/Price Gap[\s\n]+([-\d\.]+)/));
@@ -113,6 +118,7 @@
       mom_score,
       total_raw,
       kalshi_yes:    kalshiRaw != null ? kalshiRaw / 100 : null,
+      threshold,
       mins_left:     num(get(/(\d+)m left/i)),
       signal,
     };
