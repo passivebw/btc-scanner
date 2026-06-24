@@ -203,6 +203,8 @@
       lastChangeAt = Date.now();
     }
 
+    await pushCandles();  // every tick — keeps server candle cache fresh regardless of save
+
     const forceSave = Date.now() - lastSavedAt > FORCE_SAVE_MS;
     if (!isNew(pt) && !forceSave) {
       console.log(`[PS-ext] No change — BTC $${pt.btc_price} UP ${pt.up_pct}%`);
@@ -213,7 +215,6 @@
     lastPoint  = pt;
     lastSavedAt = Date.now();
     saveLocal(pt);
-    await pushCandles();  // sync real Binance candles to server before saving PS reading
     await postServer(pt);
     console.log(`[PS-ext] Saved${forceSave?' (forced)':''} — BTC $${pt.btc_price} UP ${pt.up_pct}% signal=${pt.signal} total=${pt.total_raw}`);
   }
