@@ -161,6 +161,29 @@
     );
   }
 
+  // ── Fetch Binance candles and push to server ─────────────────────────────────
+  // Chrome extensions bypass the CORS block that stops the PS page from reaching
+  // api.binance.com — so the extension can fetch and forward the real data.
+  async function pushCandles() {
+    if (!tunnelUrl) await loadTunnel();
+    if (!tunnelUrl) return;
+    try {
+      const r = await fetch(
+        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100&_t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (!r.ok) return;
+      const candles = await r.json();
+      await fetch(`${tunnelUrl}/candles-push?_t=${Date.now()}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(candles),
+      });
+    } catch (e) {
+      console.warn('[PS-ext] candles-push failed:', e.message);
+    }
+  }
+
   // ── Main tick ────────────────────────────────────────────────────────────────
   async function tick() {
     const pt = extractData();
@@ -190,6 +213,7 @@
     lastPoint  = pt;
     lastSavedAt = Date.now();
     saveLocal(pt);
+    await pushCandles();  // sync real Binance candles to server before saving PS reading
     await postServer(pt);
     console.log(`[PS-ext] Saved${forceSave?' (forced)':''} — BTC $${pt.btc_price} UP ${pt.up_pct}% signal=${pt.signal} total=${pt.total_raw}`);
   }

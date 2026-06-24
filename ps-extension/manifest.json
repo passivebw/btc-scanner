@@ -16,6 +16,7 @@
   "host_permissions": [
     "*://purplesalmon.xyz/*",
     "*://gist.githubusercontent.com/*",
-    "*://*.trycloudflare.com/*"
+    "*://*.trycloudflare.com/*",
+    "*://api.binance.com/*"
   ]
 }
