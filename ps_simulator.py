@@ -178,19 +178,26 @@ def calc_sr(highs, lows, price, thresh):
 # --- Data fetching ---
 
 def fetch_ohlc():
-    r = requests.get(
-        'https://data-api.binance.vision/api/v3/klines'
-        '?symbol=BTCUSDT&interval=1m&limit=100',
-        timeout=10
-    )
-    r.raise_for_status()
-    ohlc = r.json()
-    return (
-        [float(x[4]) for x in ohlc],  # closes
-        [float(x[1]) for x in ohlc],  # opens
-        [float(x[2]) for x in ohlc],  # highs
-        [float(x[3]) for x in ohlc],  # lows
-    )
+    # Prefer browser-cached candles (from api.binance.com) so simulator matches
+    # the HTML scanner's data window. Falls back to binance.vision if browser offline.
+    for url in [
+        'http://localhost:5000/candles-live',
+        'https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100',
+    ]:
+        try:
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+            ohlc = r.json()
+            if isinstance(ohlc, list) and ohlc:
+                return (
+                    [float(x[4]) for x in ohlc],
+                    [float(x[1]) for x in ohlc],
+                    [float(x[2]) for x in ohlc],
+                    [float(x[3]) for x in ohlc],
+                )
+        except Exception:
+            continue
+    raise Exception('All candle sources failed')
 
 
 def fetch_kalshi():

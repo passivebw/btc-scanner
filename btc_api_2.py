@@ -16,6 +16,9 @@ CACHE_TTL = 10  # short TTL — binance.vision has no rate limit concern at this
 _raw_candle_cache = {'data': None, 'ts': 0}
 RAW_CACHE_TTL = 2  # 2s — minimize lag vs PS's direct Binance connection
 
+_browser_candle_cache = {'data': None, 'ts': 0}
+BROWSER_CACHE_TTL = 90  # browser-pushed candles expire after 90s
+
 
 def fetch_ohlc():
     now = time.time()
@@ -314,6 +317,45 @@ def ps_log():
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/candles-push', methods=['POST'])
+def candles_push():
+    """Receive raw Binance kline array from browser (api.binance.com) and cache it.
+    Scanner and simulator prefer this over data-api.binance.vision so all three
+    systems share the same candle feed."""
+    try:
+        data = request.get_data()
+        if not data:
+            return jsonify({'error': 'no body'}), 400
+        _browser_candle_cache['data'] = data
+        _browser_candle_cache['ts']   = time.time()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/candles-live')
+def candles_live():
+    """Browser-cached candles if fresh (<90s), else falls back to data-api.binance.vision.
+    Used by server-side scanner and simulator so they share the browser's candle window."""
+    from flask import Response
+    now = time.time()
+    if (_browser_candle_cache['data'] is not None and
+            now - _browser_candle_cache['ts'] < BROWSER_CACHE_TTL):
+        return Response(_browser_candle_cache['data'], content_type='application/json',
+                        headers={'Cache-Control': 'no-store', 'X-Source': 'browser'})
+    try:
+        r = requests.get(
+            'https://data-api.binance.vision/api/v3/klines'
+            '?symbol=BTCUSDT&interval=1m&limit=100',
+            timeout=8, headers={'Cache-Control': 'no-cache'},
+        )
+        r.raise_for_status()
+        return Response(r.text, content_type='application/json',
+                        headers={'Cache-Control': 'no-store', 'X-Source': 'vision'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
 
 
 @app.route('/ps-compare')

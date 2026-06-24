@@ -22,6 +22,8 @@ DB_PATH = '/root/trades.db'
 SCAN_INTERVAL = 20
 STAKE = 5
 STRATS = {'conservative': 0.30, 'moderate': 0.20, 'aggressive': 0.12}
+MIN_WIN_PROB   = 0.65   # skip if model < 65% confident — cuts the 60-70% dead zone
+DOWN_EDGE_MULT = 1.25   # DOWN bets need 25% more edge (they've underperformed: 35.7% WR)
 # PS $he(minutesRemaining, gapPct) — exact port from bundle
 def calc_time_mult(mins, gap_pct):
     if   mins <= 2:  r = 1.8
@@ -131,19 +133,26 @@ def calc_sr(highs, lows, price, thresh):
 
 
 def fetch_ohlc_binance():
-    r = requests.get(
-        'https://data-api.binance.vision/api/v3/klines'
-        '?symbol=BTCUSDT&interval=1m&limit=100',
-        timeout=10
-    )
-    r.raise_for_status()
-    ohlc = r.json()
-    return (
-        [float(x[4]) for x in ohlc],  # closes
-        [float(x[1]) for x in ohlc],  # opens
-        [float(x[2]) for x in ohlc],  # highs
-        [float(x[3]) for x in ohlc],  # lows
-    )
+    # Prefer browser-cached candles (from api.binance.com) so scanner shares the
+    # same data window as the HTML scanner and PS. Falls back to binance.vision.
+    for url in [
+        'http://localhost:5000/candles-live',
+        'https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100',
+    ]:
+        try:
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+            ohlc = r.json()
+            if isinstance(ohlc, list) and ohlc:
+                return (
+                    [float(x[4]) for x in ohlc],
+                    [float(x[1]) for x in ohlc],
+                    [float(x[2]) for x in ohlc],
+                    [float(x[3]) for x in ohlc],
+                )
+        except Exception:
+            continue
+    raise Exception('All candle sources failed')
 
 
 def fetch_ohlc_kraken():
@@ -315,9 +324,10 @@ def build_signal(sc, kalshi, min_edge):
     ae   = abs(edge)
     mins = sc['mins_left']
 
+    effective_min = min_edge * (DOWN_EDGE_MULT if edge < 0 else 1.0)
     if mins <= 2:
         signal = 'TOO_CLOSE'
-    elif ae < min_edge:
+    elif ae < effective_min or wp < MIN_WIN_PROB:
         signal = 'NO_TRADE'
     else:
         signal = 'TRADE'

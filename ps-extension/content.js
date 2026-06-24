@@ -4,12 +4,14 @@
   const GIST_URL   = 'https://gist.githubusercontent.com/passivebw/8060a0bd99f0b8b3cbf2125ab7446b84/raw/config.json';
   const LS_KEY     = 'ps_data';
   const MAX_POINTS = 1000;
-  const INTERVAL   = 60_000;   // ms between collections
-  const FREEZE_MS  = 5 * 60_000; // reload if upPct unchanged for 5 min
+  const INTERVAL      = 60_000;      // ms between collections
+  const FREEZE_MS     = 5 * 60_000;  // reload if upPct unchanged for 5 min
+  const FORCE_SAVE_MS = 5 * 60_000;  // force save every 5 min regardless of change
 
   let tunnelUrl    = null;
   let lastPoint    = null;
   let lastChangeAt = Date.now();
+  let lastSavedAt  = 0;
 
   // ── Gist config ─────────────────────────────────────────────────────────────
   async function loadTunnel() {
@@ -178,16 +180,18 @@
       lastChangeAt = Date.now();
     }
 
-    if (!isNew(pt)) {
-      console.log(`[PS-ext] No meaningful change — BTC $${pt.btc_price} UP ${pt.up_pct}%`);
+    const forceSave = Date.now() - lastSavedAt > FORCE_SAVE_MS;
+    if (!isNew(pt) && !forceSave) {
+      console.log(`[PS-ext] No change — BTC $${pt.btc_price} UP ${pt.up_pct}%`);
       lastPoint = pt;
       return;
     }
 
-    lastPoint = pt;
+    lastPoint  = pt;
+    lastSavedAt = Date.now();
     saveLocal(pt);
     await postServer(pt);
-    console.log(`[PS-ext] Saved — BTC $${pt.btc_price} UP ${pt.up_pct}% signal=${pt.signal} total=${pt.total_raw}`);
+    console.log(`[PS-ext] Saved${forceSave?' (forced)':''} — BTC $${pt.btc_price} UP ${pt.up_pct}% signal=${pt.signal} total=${pt.total_raw}`);
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────
