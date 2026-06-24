@@ -82,10 +82,10 @@
 
     const kalshiRaw = num(get(/Kalshi:\s*(\d+)%/));
 
-    // Threshold — shown as "BTC ABOVE $64,336.43" or "BTC BELOW $63,971.51"
-    // or just "$64,336.43 | 7% left" in compact view
+    // Threshold — "BTC BELOW $62,865.8" / "BTC ABOVE $64,336.43" / "NO TRADE $62,865.8 7m left"
     const threshold = num(get(/BTC (?:ABOVE|BELOW)\s*\$([\d,]+(?:\.\d+)?)/i))
-                   || num(get(/\$([\d,]+(?:\.\d+)?)\s*\|\s*\d+[%m]/i));
+                   || num(get(/(?:NO TRADE|TOO CLOSE|YES ABOVE|NO BELOW)\s*\$([\d,]+(?:\.\d+)?)/i))
+                   || num(get(/\$([\d,]+(?:\.\d+)?)\s+\d+m\s+left/i));
 
     // Component scores — [\s\n]+ handles both "Score Breakdown" (label\nvalue)
     // and "Factor Breakdown" (label  value) layouts
