@@ -186,6 +186,8 @@
 
   // ── Main tick ────────────────────────────────────────────────────────────────
   async function tick() {
+    await pushCandles();  // always first — independent of whether PS data parses
+
     const pt = extractData();
     if (!pt) {
       console.log('[PS-ext] No data yet — page may still be loading');
@@ -202,8 +204,6 @@
     } else {
       lastChangeAt = Date.now();
     }
-
-    await pushCandles();  // every tick — keeps server candle cache fresh regardless of save
 
     const forceSave = Date.now() - lastSavedAt > FORCE_SAVE_MS;
     if (!isNew(pt) && !forceSave) {
